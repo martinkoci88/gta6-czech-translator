@@ -97,7 +97,7 @@
   let pendingFinalText = "";
   let finalFlushTimer = null;
   // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
-  const FINAL_FLUSH_DELAY = 850;
+  const FINAL_FLUSH_DELAY = 450;
   // Dva požadavky zrychlí práci, výsledky ale zobrazujeme vždy v pořadí řeči.
   const MAX_WORKERS = 2;
   const MAX_QUEUE = 30;
@@ -296,28 +296,14 @@
       if (interimParts.length) {
         const preview = [pendingFinalText, ...interimParts]
           .filter(Boolean).join(" ").replace(/\s+/g," ").trim();
-        const previewKey = normalize(preview);
+        // Během mluvení zobrazujeme živý anglický přepis, ale neposíláme
+        // každou změnu do pomalého externího překladače. Tyto souběžné
+        // požadavky zahlcovaly síť a zdržovaly finální české titulky.
         $("english").textContent = preview;
-        $("hint").textContent = "Průběžně překládám celý aktuální dialog…";
-        if (previewTimer) clearTimeout(previewTimer);
-        if (previewKey.split(" ").length >= 3 && previewKey !== lastFinalText &&
-            previewKey !== lastPreviewKey) {
-          const sequence = ++previewSequence;
-          const generation = clearGeneration;
-          previewTimer = setTimeout(() => {
-            previewTimer = null;
-            lastPreviewKey = previewKey;
-            requestTranslation(preview).then(result => {
-              if (sequence === previewSequence && generation === clearGeneration &&
-                  normalize($("english").textContent) === previewKey) {
-                $("czech").textContent = result;
-                $("hint").textContent = "Průběžný český překlad – dialog se ještě dokončuje.";
-              }
-            }).catch(() => {
-              // Chyba náhledu neblokuje finální překlad potvrzené věty.
-            });
-          }, 420);
-        }
+        $("hint").textContent = "Zachycuji dialog – český překlad připravuji průběžně po krátkých úsecích.";
+        if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+        previewSequence++;
+        lastPreviewKey = "";
       }
     };
 
