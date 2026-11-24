@@ -86,6 +86,7 @@
   const cache = new Map();
   const queue = [];
   let activeWorkers = 0;
+  let latestDisplayId = 0;
   // Zpracovávej titulky postupně, aby se překlady nepředbíhaly a neztrácely.
   const MAX_WORKERS = 3;
   const MAX_QUEUE = 30;
@@ -109,7 +110,7 @@
     if (cache.has(key)) return cache.get(key);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 9000);
+    const timeout = setTimeout(() => controller.abort(), 6500);
     try {
       const url = "https://api.mymemory.translated.net/get?q=" +
         encodeURIComponent(text) + "&langpair=en|cs";
@@ -130,15 +131,17 @@
   }
 
   function addTranslation(text) {
-    const clean = (text || "").replace(/\\s+/g," ").trim();
+    const clean = (text || "").replace(/\s+/g," ").trim();
     const key = normalize(clean);
     if (!key) return;
 
     // Každá rozpoznaná věta dostane vlastní položku. Výsledky se zobrazí
     // v pořadí, v jakém byly vysloveny, místo zahazování pomalejších překladů.
+    const displayId = ++latestDisplayId;
     queue.push({
       text: clean,
       generation: clearGeneration,
+      displayId,
       local: phrases[key] || cache.get(key) || null
     });
 
@@ -159,7 +162,7 @@
 
       translation
         .then(result => {
-          if (item.generation === clearGeneration) {
+          if (item.generation === clearGeneration && item.displayId === latestDisplayId) {
             $("english").textContent = item.text;
             $("czech").textContent = result;
             $("hint").textContent = item.local
@@ -281,6 +284,7 @@
 
   $("clear").addEventListener("click",() => {
     clearGeneration++;
+    latestDisplayId++;
     lastFinalText = "";
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
