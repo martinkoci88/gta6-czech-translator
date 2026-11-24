@@ -261,7 +261,7 @@
   // Když řeč na chvíli zpomalí, ukážeme předběžný překlad ještě před
   // definitivním ukončením věty. Pozdější finální překlad ho bezpečně nahradí.
   function schedulePreview(text) {
-    const clean = (text || "").replace(/\\s+/g," ").trim();
+    const clean = (text || "").replace(/\s+/g," ").trim();
     const key = normalize(clean);
     if (!key || key.length < 5 || key === lastPreviewKey) return;
     if (previewTimer) clearTimeout(previewTimer);
