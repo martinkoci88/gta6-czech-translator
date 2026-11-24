@@ -87,6 +87,7 @@
   const queue = [];
   let activeWorkers = 0;
   let latestDisplayId = 0;
+  let interimTimer = null;
   // Zpracovávej titulky postupně, aby se překlady nepředbíhaly a neztrácely.
   const MAX_WORKERS = 3;
   const MAX_QUEUE = 30;
@@ -171,7 +172,7 @@
           }
         })
         .catch(error => {
-          if (item.generation === clearGeneration) {
+          if (item.generation === clearGeneration && item.displayId === latestDisplayId) {
             $("english").textContent = item.text;
             $("czech").textContent = "Překlad se nepodařilo načíst.";
             $("hint").textContent = error.name === "AbortError"
@@ -187,6 +188,7 @@
   }
 
   function showFinal(text) {
+    if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
     const clean = (text || "").replace(/\s+/g," ").trim();
     if (!clean) return;
     const key = normalize(clean);
@@ -222,10 +224,19 @@
         else interimParts.push(spoken.trim());
       }
 
-      if (finalParts.length) finalParts.forEach(showFinal);
-      if (interimParts.length) {
-        $("english").textContent = interimParts.join(" ");
-        $("hint").textContent = "Rozpoznávám právě mluvenou větu…";
+      if (finalParts.length) {
+        finalParts.forEach(showFinal);
+      } else if (interimParts.length) {
+        const preview = interimParts.join(" ").replace(/\s+/g," ").trim();
+        $("english").textContent = preview;
+        $("hint").textContent = "Rozpoznávám řeč; připravuji průběžný překlad…";
+        if (interimTimer) clearTimeout(interimTimer);
+        if (preview.split(/\s+/).length >= 4) {
+          interimTimer = setTimeout(() => {
+            interimTimer = null;
+            if (normalize(preview) !== lastFinalText) addTranslation(preview);
+          }, 550);
+        }
       }
     };
 
@@ -285,6 +296,7 @@
   $("clear").addEventListener("click",() => {
     clearGeneration++;
     latestDisplayId++;
+    if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
     lastFinalText = "";
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
