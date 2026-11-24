@@ -47,3 +47,10 @@ notification_updated,Updated,Aktualizováno
 error_connection,Connection Error,Chyba připojení
 error_save,Save Failed,Uložení selhalo
 error_load,Load Failed,Načtení selhalo
+ui_new_game,New Game,Nová hra,Menu,reviewed
+ui_resume,Resume,Pokračovat,Menu,reviewed
+ui_quit,Quit,Ukončit,Menu,reviewed
+ui_exit,Exit,Odejít,Menu,reviewed
+ui_restart,Restart,Restartovat,Menu,reviewed
+ui_confirm,Confirm,Potvrdit,Menu,reviewed
+ui_cancel,Cancel,Zrušit,Menu,reviewed
