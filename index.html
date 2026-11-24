@@ -66,6 +66,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const phrases = {
+    "have a good day":"Měj hezký den.","have a nice day":"Měj hezký den.","good day":"Hezký den.",
     "what are you doing":"Co to děláš?","come on":"No tak, dělej.","let's go":"Jdeme na to.",
     "get down":"K zemi!","watch out":"Pozor!","are you crazy":"Zbláznil ses?",
     "i need help":"Potřebuju pomoct.","thank you":"Děkuju.","where are you":"Kde jsi?",
@@ -97,7 +98,7 @@
   let pendingFinalText = "";
   let finalFlushTimer = null;
   // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
-  const FINAL_FLUSH_DELAY = 450;
+  const FINAL_FLUSH_DELAY = 280;
   // Dva požadavky zrychlí práci, výsledky ale zobrazujeme vždy v pořadí řeči.
   const MAX_WORKERS = 2;
   const MAX_QUEUE = 30;
@@ -120,33 +121,55 @@
     const key = normalize(text);
     if (!key) return "";
     if (cache.has(key)) return cache.get(key);
-    // Stejný průběžný úryvek může přijít vícekrát. Sdílej jeden požadavek,
-    // aby se zbytečně nezatěžovalo připojení ani překladová služba.
     if (inFlight.has(key)) return inFlight.get(key);
 
     const task = (async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 6500);
+      const googleController = new AbortController();
+      const googleTimeout = setTimeout(() => googleController.abort(), 3500);
       try {
-        const url = "https://api.mymemory.translated.net/get?q=" +
-          encodeURIComponent(text) + "&langpair=en|cs";
-        const response = await fetch(url,{signal:controller.signal});
-        if (!response.ok) throw new Error("HTTP " + response.status);
+        const googleUrl = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
+          encodeURIComponent(text);
+        const response = await fetch(googleUrl, { signal: googleController.signal });
+        if (!response.ok) throw new Error("Google překladač HTTP " + response.status);
         const data = await response.json();
-        const translated = data && data.responseData && data.responseData.translatedText;
-        if (!translated || (data.responseStatus && data.responseStatus !== 200)) {
-          throw new Error("Překladač nevrátil překlad.");
+        const translated = Array.isArray(data?.[0])
+          ? data[0].map(part => part?.[0] || "").join("").trim()
+          : "";
+        if (!translated || normalize(translated) === key) {
+          throw new Error("První překladač nevrátil český překlad.");
         }
-        const result = decodeHtml(translated);
-        cache.set(key,result);
-        if (cache.size > 250) cache.delete(cache.keys().next().value);
-        return result;
+        cache.set(key, translated);
+        if (cache.size > 400) cache.delete(cache.keys().next().value);
+        return translated;
+      } catch (googleError) {
+        const fallbackController = new AbortController();
+        const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4500);
+        try {
+          const fallbackUrl = "https://api.mymemory.translated.net/get?q=" +
+            encodeURIComponent(text) + "&langpair=en|cs";
+          const response = await fetch(fallbackUrl, { signal: fallbackController.signal });
+          if (!response.ok) throw new Error("Záložní překladač HTTP " + response.status);
+          const data = await response.json();
+          const translated = data?.responseData?.translatedText;
+          if (!translated || (data.responseStatus && data.responseStatus !== 200)) {
+            throw new Error("Záložní překladač nevrátil překlad.");
+          }
+          const result = decodeHtml(translated).trim();
+          if (!result || normalize(result) === key) {
+            throw new Error("Překladač vrátil původní anglický text.");
+          }
+          cache.set(key, result);
+          if (cache.size > 400) cache.delete(cache.keys().next().value);
+          return result;
+        } finally {
+          clearTimeout(fallbackTimeout);
+        }
       } finally {
-        clearTimeout(timeout);
+        clearTimeout(googleTimeout);
         inFlight.delete(key);
       }
     })();
-    inFlight.set(key,task);
+    inFlight.set(key, task);
     return task;
   }
 
