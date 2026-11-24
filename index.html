@@ -99,9 +99,9 @@
   let finalFlushTimer = null;
   // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
   const FINAL_FLUSH_DELAY = 280;
-  // Dva požadavky zrychlí práci, výsledky ale zobrazujeme vždy v pořadí řeči.
-  const MAX_WORKERS = 2;
-  const MAX_QUEUE = 30;
+  // Tři souběžné překlady pomohou při rychlém dialogu; pořadí titulků zůstává zachované.
+  const MAX_WORKERS = 3;
+  const MAX_QUEUE = 50;
 
   const normalize = s => (s || "").toLowerCase()
     .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
@@ -269,6 +269,9 @@
     const sequence = ++previewSequence;
     previewTimer = setTimeout(async () => {
       previewTimer = null;
+      // Náhled nesmí soutěžit o připojení s potvrzenými titulky.
+      // Finální věty mají vždy přednost; náhled zkusíme při další pauze.
+      if (activeWorkers > 0 || queue.length > 0) return;
       try {
         const translated = await requestTranslation(clean);
         if (sequence !== previewSequence || !wantListening) return;
