@@ -90,6 +90,9 @@
   let nextDisplayInOrder = 1;
   const completed = new Map();
   let interimTimer = null;
+  let previewTimer = null;
+  let previewSequence = 0;
+  let lastPreviewKey = "";
   // Dva požadavky zrychlí práci, výsledky ale zobrazujeme vždy v pořadí řeči.
   const MAX_WORKERS = 2;
   const MAX_QUEUE = 30;
@@ -220,6 +223,10 @@
 
   function showFinal(text) {
     if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
+    // Zneplatni rozpracovaný náhled, aby nepřepsal potvrzený titulek.
+    previewSequence++;
+    if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    lastPreviewKey = "";
     const clean = (text || "").replace(/\s+/g," ").trim();
     if (!clean) return;
     const key = normalize(clean);
@@ -258,11 +265,32 @@
       if (finalParts.length) {
         finalParts.forEach(showFinal);
       } else if (interimParts.length) {
-        // Průběžný text zobrazujeme jen jako náhled. Překládáme až potvrzené
-        // věty, aby se neposílaly opakované a neúplné úryvky do online API.
+        // Překládej stabilní průběžnou frázi ještě před koncem věty.
+        // Časovač omezuje počet online požadavků a sekvence brání starému
+        // výsledku přepsat novější dialog.
         const preview = interimParts.join(" ").replace(/\s+/g," ").trim();
+        const previewKey = normalize(preview);
         $("english").textContent = preview;
-        $("hint").textContent = "Rozpoznávám dialog…";
+        $("hint").textContent = "Průběžně překládám dialog…";
+        if (previewTimer) clearTimeout(previewTimer);
+        if (previewKey.split(" ").length >= 3 && previewKey !== lastFinalText &&
+            previewKey !== lastPreviewKey) {
+          const sequence = ++previewSequence;
+          const generation = clearGeneration;
+          previewTimer = setTimeout(() => {
+            previewTimer = null;
+            lastPreviewKey = previewKey;
+            requestTranslation(preview).then(result => {
+              if (sequence === previewSequence && generation === clearGeneration &&
+                  normalize($("english").textContent) === previewKey) {
+                $("czech").textContent = result;
+                $("hint").textContent = "Průběžný český překlad – věta se ještě dokončuje.";
+              }
+            }).catch(() => {
+              // Chyba náhledu neblokuje finální překlad potvrzené věty.
+            });
+          }, 420);
+        }
       }
     };
 
@@ -325,6 +353,9 @@
     nextDisplayInOrder = 1;
     completed.clear();
     if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
+    if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    previewSequence++;
+    lastPreviewKey = "";
     lastFinalText = "";
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
