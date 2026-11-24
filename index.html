@@ -87,7 +87,7 @@
   const queue = [];
   let activeWorkers = 0;
   // Zpracovávej titulky postupně, aby se překlady nepředbíhaly a neztrácely.
-  const MAX_WORKERS = 2;
+  const MAX_WORKERS = 3;
   const MAX_QUEUE = 30;
 
   const normalize = s => (s || "").toLowerCase()
