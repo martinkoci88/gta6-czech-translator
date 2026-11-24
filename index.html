@@ -98,45 +98,28 @@
     "go go go": "Jeď, jeď, jeď!"
   };
   let recognition = null, listening = false;
-  const normalize = s => s.toLowerCase().replace(/[^a-z0-9' ]/g,"").replace(/\s+/g," ").trim();
-  let translationRequest = 0;
-  let translationController = null;
-  let lastTranslationText = "";
-  let interimTimer = null;
-  async function show(text, isPartial = false) {
-    const cleanText = (text || "").trim();
-    $("english").textContent = cleanText || "Nebylo rozpoznáno žádné slovo.";
-    if (!cleanText) {
-      $("czech").textContent = "České titulky se zobrazí zde.";
-      $("hint").textContent = "";
-      return;
-    }
+  const normalize = s => s.toLowerCase().replace(/[^a-z0-9' ]/g,"").replace(/\\s+/g," ").trim();
+
+  // Překlady zpracováváme postupně. Nová věta už nezruší překlad předchozí.
+  let translationQueue = Promise.resolve();
+  let lastQueuedText = "";
+
+  async function translateOne(cleanText) {
     const local = phrases[normalize(cleanText)];
     if (local) {
-      translationRequest++;
-      if (translationController) translationController.abort();
-      lastTranslationText = cleanText;
       $("czech").textContent = local;
       $("hint").textContent = "Překlad z místního slovníku.";
       return;
     }
-    if (cleanText === lastTranslationText) return;
-    lastTranslationText = cleanText;
-    const requestId = ++translationRequest;
-    if (translationController) translationController.abort();
-    translationController = new AbortController();
-    const controller = translationController;
-    $("czech").textContent = isPartial ? "Průběžný překlad…" : "Překládám…";
-    $("hint").textContent = isPartial
-      ? "Překládám průběžně zachycenou část dialogu."
-      : "Online překlad zachyceného dialogu.";
+
+    $("czech").textContent = "Překládám…";
+    $("hint").textContent = "Zpracovávám větu ve frontě, předchozí překlady se nezahazují.";
     try {
       const url = "https://api.mymemory.translated.net/get?q=" +
         encodeURIComponent(cleanText) + "&langpair=en|cs";
-      const response = await fetch(url, { signal: controller.signal });
+      const response = await fetch(url);
       if (!response.ok) throw new Error("HTTP " + response.status);
       const data = await response.json();
-      if (requestId !== translationRequest) return;
       const translated = data && data.responseData && data.responseData.translatedText;
       if (data.responseStatus === 200 && translated) {
         const decoded = document.createElement("textarea");
@@ -147,11 +130,23 @@
         throw new Error("Překladač nevrátil překlad.");
       }
     } catch (error) {
-      if (error && error.name === "AbortError") return;
-      if (requestId !== translationRequest) return;
       $("czech").textContent = "Překlad se nepodařilo načíst.";
-      $("hint").textContent = "Zkontroluj internetové připojení. Pokud problém trvá, online překladač může být dočasně nedostupný.";
+      $("hint").textContent = "Věta zůstala zachována, ale online překladač ji nedokázal přeložit.";
     }
+  }
+
+  function show(text, isPartial = false) {
+    const cleanText = (text || "").trim();
+    if (!cleanText) return;
+    $("english").textContent = cleanText;
+    if (isPartial) return;
+
+    const key = normalize(cleanText);
+    if (!key || key === lastQueuedText) return;
+    lastQueuedText = key;
+    $("czech").textContent = "Čekám na překlad…";
+    $("hint").textContent = "Věta je zařazena do fronty. Dokončené věty nepřeskakujeme.";
+    translationQueue = translationQueue.then(() => translateOne(cleanText));
   }
   function setStatus(text,on=false) { $("status").textContent=text; $("dot").classList.toggle("on",on); }
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -169,14 +164,12 @@
         if(event.results[i].isFinal) finalText += t; else interim += t;
       }
       if (finalText.trim()) {
-        clearTimeout(interimTimer);
         show(finalText.trim(), false);
       } else if (interim.trim()) {
-        const partialText = interim.trim();
-        $("english").textContent = partialText;
-        $("hint").textContent = "Zachycuji dialog a připravuji průběžný překlad…";
-        clearTimeout(interimTimer);
-        interimTimer = setTimeout(() => show(partialText, true), 550);
+        // Průběžný text pouze zobrazíme. Neposíláme ho k překladu,
+        // protože by zbytečně rušil nebo zahlcoval hotové věty.
+        $("english").textContent = interim.trim();
+        $("hint").textContent = "Naslouchám další větě…";
       }
     };
     recognition.onerror = event => setStatus("Mikrofon: " + event.error, false);
