@@ -262,16 +262,19 @@
         else interimParts.push(spoken.trim());
       }
 
+      // Finální části zpracujeme vždy, ale současně nezahazujeme novou
+      // průběžnou část. Pro náhled spojíme právě potvrzený úsek s tím,
+      // co rozpoznávání právě slyší – jinak se konec věty ztrácel.
       if (finalParts.length) {
         finalParts.forEach(showFinal);
-      } else if (interimParts.length) {
-        // Překládej stabilní průběžnou frázi ještě před koncem věty.
-        // Časovač omezuje počet online požadavků a sekvence brání starému
-        // výsledku přepsat novější dialog.
-        const preview = interimParts.join(" ").replace(/\s+/g," ").trim();
+      }
+
+      if (interimParts.length) {
+        const preview = finalParts.concat(interimParts)
+          .join(" ").replace(/\s+/g," ").trim();
         const previewKey = normalize(preview);
         $("english").textContent = preview;
-        $("hint").textContent = "Průběžně překládám dialog…";
+        $("hint").textContent = "Průběžně překládám celý aktuální dialog…";
         if (previewTimer) clearTimeout(previewTimer);
         if (previewKey.split(" ").length >= 3 && previewKey !== lastFinalText &&
             previewKey !== lastPreviewKey) {
@@ -284,7 +287,7 @@
               if (sequence === previewSequence && generation === clearGeneration &&
                   normalize($("english").textContent) === previewKey) {
                 $("czech").textContent = result;
-                $("hint").textContent = "Průběžný český překlad – věta se ještě dokončuje.";
+                $("hint").textContent = "Průběžný český překlad – dialog se ještě dokončuje.";
               }
             }).catch(() => {
               // Chyba náhledu neblokuje finální překlad potvrzené věty.
