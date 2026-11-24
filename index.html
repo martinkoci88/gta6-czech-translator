@@ -81,13 +81,14 @@
   let recognition = null;
   let wantListening = false;
   let starting = false;
-  let latestRequest = 0;
+  let clearGeneration = 0;
   let lastFinalText = "";
   const cache = new Map();
   const queue = [];
   let activeWorkers = 0;
-  const MAX_WORKERS = 2;
-  const MAX_QUEUE = 8;
+  // Zpracovávej titulky postupně, aby se překlady nepředbíhaly a neztrácely.
+  const MAX_WORKERS = 1;
+  const MAX_QUEUE = 30;
 
   const normalize = s => (s || "").toLowerCase()
     .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
@@ -129,29 +130,21 @@
   }
 
   function addTranslation(text) {
-    const clean = (text || "").replace(/\s+/g," ").trim();
+    const clean = (text || "").replace(/\\s+/g," ").trim();
     const key = normalize(clean);
     if (!key) return;
-    const requestId = ++latestRequest;
-    const local = phrases[key];
 
-    if (local) {
-      $("czech").textContent = local;
-      $("hint").textContent = "Rychlý překlad z místního slovníku.";
-      return;
+    // Každá rozpoznaná věta dostane vlastní položku. Výsledky se zobrazí
+    // v pořadí, v jakém byly vysloveny, místo zahazování pomalejších překladů.
+    queue.push({
+      text: clean,
+      generation: clearGeneration,
+      local: phrases[key] || cache.get(key) || null
+    });
+
+    if (queue.length > MAX_QUEUE) {
+      queue.splice(0, queue.length - MAX_QUEUE);
     }
-
-    if (cache.has(key)) {
-      $("czech").textContent = cache.get(key);
-      $("hint").textContent = "Překlad z mezipaměti.";
-      return;
-    }
-
-    $("czech").textContent = "Překládám…";
-    $("hint").textContent = "Překlad běží na pozadí.";
-
-    queue.push({text:clean,requestId});
-    if (queue.length > MAX_QUEUE) queue.splice(0,queue.length-MAX_QUEUE);
     runQueue();
   }
 
@@ -159,15 +152,24 @@
     while (activeWorkers < MAX_WORKERS && queue.length) {
       const item = queue.shift();
       activeWorkers++;
-      requestTranslation(item.text)
+
+      const translation = item.local
+        ? Promise.resolve(item.local)
+        : requestTranslation(item.text);
+
+      translation
         .then(result => {
-          if (item.requestId === latestRequest) {
+          if (item.generation === clearGeneration) {
+            $("english").textContent = item.text;
             $("czech").textContent = result;
-            $("hint").textContent = "Automatický online překlad.";
+            $("hint").textContent = item.local
+              ? "Rychlý překlad z místního slovníku nebo mezipaměti."
+              : "Automatický online překlad.";
           }
         })
         .catch(error => {
-          if (item.requestId === latestRequest) {
+          if (item.generation === clearGeneration) {
+            $("english").textContent = item.text;
             $("czech").textContent = "Překlad se nepodařilo načíst.";
             $("hint").textContent = error.name === "AbortError"
               ? "Překlad trval příliš dlouho. Zkusíme další větu."
@@ -217,7 +219,7 @@
         else interimParts.push(spoken.trim());
       }
 
-      if (finalParts.length) showFinal(finalParts.join(" "));
+      if (finalParts.length) finalParts.forEach(showFinal);
       if (interimParts.length) {
         $("english").textContent = interimParts.join(" ");
         $("hint").textContent = "Rozpoznávám právě mluvenou větu…";
@@ -278,7 +280,7 @@
   });
 
   $("clear").addEventListener("click",() => {
-    latestRequest++;
+    clearGeneration++;
     lastFinalText = "";
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
