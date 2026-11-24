@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090d14">
+  <title>GTA Czech Subtitles – prototyp</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090d14; --panel:#131b27; --muted:#93a1b4; --line:#263447; --accent:#a78bfa; --green:#39d98a; }
+    * { box-sizing:border-box }
+    body { margin:0; min-height:100vh; background:radial-gradient(ellipse at top,#172235 0%,var(--bg) 55%); color:#f4f7fb; font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { width:min(760px,100%); margin:auto; padding:28px 18px calc(34px + env(safe-area-inset-bottom)); }
+    header { display:flex; align-items:center; gap:12px; margin-bottom:26px }
+    .logo { width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,#a78bfa,#6d5ce7);display:grid;place-items:center;font-weight:900;font-size:21px;color:#090d14 }
+    h1 { font-size:20px; margin:0 } .sub { color:var(--muted);font-size:13px }
+    .status { display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin:14px 0 10px }
+    .dot { width:8px;height:8px;border-radius:50%;background:#77869a } .dot.on {background:var(--green);box-shadow:0 0 12px #39d98a88}
+    .screen { background:rgba(19,27,39,.92);border:1px solid var(--line);border-radius:22px;padding:20px;min-height:245px;box-shadow:0 18px 60px #0005 }
+    .tag { color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px }
+    .english { color:#c3cedc;font-size:18px;min-height:54px;overflow-wrap:anywhere }
+    .divider { height:1px;background:var(--line);margin:20px 0 }
+    .czech { font-size:clamp(25px,6vw,36px);font-weight:750;line-height:1.2;min-height:84px;overflow-wrap:anywhere }
+    .hint { color:var(--muted);font-size:13px;margin-top:12px }
+    .controls { display:flex;gap:12px;margin:18px 0;flex-wrap:wrap }
+    button { border:0;border-radius:15px;padding:15px 18px;font-size:16px;font-weight:700;cursor:pointer }
+    #listen { flex:1;background:var(--accent);color:#100d20;min-width:180px }
+    #listen[disabled] { opacity:.5;cursor:not-allowed }
+    #clear { background:#202c3d;color:#e7edf5 }
+    .manual { background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:18px }
+    label {display:block;font-size:13px;color:var(--muted);margin-bottom:8px}
+    textarea { width:100%;min-height:74px;resize:vertical;background:#0b111a;border:1px solid var(--line);border-radius:12px;padding:12px;color:#fff;font:inherit }
+    .small {font-size:12px;color:var(--muted);margin-top:12px}
+    .warning {border:1px solid #65532a;background:#2a2417;color:#f4d99b;padding:13px 14px;border-radius:14px;font-size:13px;margin-top:18px}
+    footer {color:#718096;font-size:12px;text-align:center;margin-top:22px}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo">CZ</div>
+    <div><h1>GTA Czech Subtitles</h1><div class="sub">První prototyp · angličtina → čeština</div></div>
+  </header>
+  <div class="status"><span class="dot" id="dot"></span><span id="status">Mikrofon zatím není spuštěný</span></div>
+  <section class="screen" aria-live="polite">
+    <div class="tag">Anglický dialog</div>
+    <div class="english" id="english">Tady se zobrazí rozpoznaná anglická řeč…</div>
+    <div class="divider"></div>
+    <div class="tag">Český titulek</div>
+    <div class="czech" id="czech">České titulky se zobrazí zde.</div>
+    <div class="hint" id="hint">Zatím jde o test rozpoznávání řeči a několika ukázkových frází.</div>
+  </section>
+  <div class="controls">
+    <button id="listen">🎙 Spustit poslech</button>
+    <button id="clear">Vymazat</button>
+  </div>
+  <section class="manual">
+    <label for="manualText">Test bez mikrofonu – napiš anglickou větu</label>
+    <textarea id="manualText" placeholder="Např. What are you doing?"></textarea>
+    <div class="controls" style="margin-bottom:0"><button id="test" style="background:#26364b;color:#fff;width:100%">Vyzkoušet překlad</button></div>
+    <div class="small">Tato testovací verze zatím překládá jen několik přednastavených frází. Neznámé věty se zobrazí v angličtině.</div>
+  </section>
+  <div class="warning" id="compat">Poznámka: rozpoznávání řeči závisí na podpoře prohlížeče a povolení mikrofonu. Na iPhonu nemusí být funkce dostupná; pokud se mikrofon nespustí, vyzkoušíme jiný způsob.</div>
+  <footer>Prototyp není propojený s PS5 a zatím neposílá zvuk do hry.</footer>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const phrases = {
+    "what are you doing": "Co to děláš?",
+    "come on": "No tak, dělej.",
+    "let's go": "Jdeme na to.",
+    "get down": "K zemi!",
+    "watch out": "Pozor!",
+    "are you crazy": "Zbláznil ses?",
+    "i need help": "Potřebuju pomoct.",
+    "thank you": "Děkuju.",
+    "where are you": "Kde jsi?",
+    "follow me": "Pojď za mnou."
+  };
+  let recognition = null, listening = false;
+  const normalize = s => s.toLowerCase().replace(/[^a-z0-9' ]/g,"").replace(/\s+/g," ").trim();
+  function show(text) {
+    $("english").textContent = text || "Nebylo rozpoznáno žádné slovo.";
+    const translated = phrases[normalize(text)];
+    $("czech").textContent = translated || "Překlad této věty zatím není v testovacím slovníku.";
+    $("hint").textContent = translated ? "Ukázkový překlad z místního slovníku." : "V dalším kroku připojíme automatický překlad celých vět.";
+  }
+  function setStatus(text,on=false) { $("status").textContent=text; $("dot").classList.toggle("on",on); }
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onstart = () => { listening=true; $("listen").textContent="■ Zastavit poslech"; setStatus("Poslouchám angličtinu…",true); };
+    recognition.onresult = event => {
+      let finalText = "";
+      let interim = "";
+      for (let i=event.resultIndex;i<event.results.length;i++) {
+        const t=event.results[i][0].transcript;
+        if(event.results[i].isFinal) finalText += t; else interim += t;
+      }
+      const value = finalText || interim;
+      if(value) show(value);
+    };
+    recognition.onerror = event => setStatus("Mikrofon: " + event.error, false);
+    recognition.onend = () => { listening=false; $("listen").textContent="🎙 Spustit poslech"; setStatus("Poslech je vypnutý",false); };
+    $("listen").addEventListener("click", () => {
+      if(listening) recognition.stop();
+      else { try { recognition.start(); } catch(e) { setStatus("Poslech se nepodařilo spustit",false); } }
+    });
+  } else {
+    $("listen").disabled=true;
+    $("listen").textContent="Mikrofon není podporován";
+    setStatus("Tento prohlížeč nepodporuje rozpoznávání řeči",false);
+  }
+  $("test").addEventListener("click",()=>show($("manualText").value.trim()));
+  $("clear").addEventListener("click",()=>{
+    $("english").textContent="Tady se zobrazí rozpoznaná anglická řeč…";
+    $("czech").textContent="České titulky se zobrazí zde.";
+    $("hint").textContent="Zatím jde o test rozpoznávání řeči a několika ukázkových frází.";
+    $("manualText").value="";
+  });
+})();
+</script>
+</body>
+</html>
