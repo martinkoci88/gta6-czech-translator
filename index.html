@@ -66,131 +66,225 @@
 (() => {
   const $ = id => document.getElementById(id);
   const phrases = {
-    "what are you doing": "Co to děláš?",
-    "come on": "No tak, dělej.",
-    "let's go": "Jdeme na to.",
-    "get down": "K zemi!",
-    "watch out": "Pozor!",
-    "are you crazy": "Zbláznil ses?",
-    "i need help": "Potřebuju pomoct.",
-    "thank you": "Děkuju.",
-    "where are you": "Kde jsi?",
-    "follow me": "Pojď za mnou.",
-    "get in the car": "Nastup do auta.",
-    "get out of the car": "Vystup z auta.",
-    "hurry up": "Dělej, honem.",
-    "stay here": "Zůstaň tady.",
-    "come here": "Pojď sem.",
-    "leave me alone": "Nech mě být.",
-    "help me": "Pomoz mi.",
-    "call the police": "Zavolej policii.",
-    "hands up": "Ruce vzhůru!",
-    "drop the weapon": "Odhoď zbraň!",
-    "you're under arrest": "Jste zatčen.",
-    "freeze": "Ani hnout!",
-    "run": "Utíkej!",
-    "drive": "Jeď!",
-    "what happened": "Co se stalo?",
-    "i don't know": "Nevím.",
-    "shut up": "Sklapni.",
-    "let's get out of here": "Vypadněme odsud.",
-    "move": "Uhni!",
-    "go go go": "Jeď, jeď, jeď!"
+    "what are you doing":"Co to děláš?","come on":"No tak, dělej.","let's go":"Jdeme na to.",
+    "get down":"K zemi!","watch out":"Pozor!","are you crazy":"Zbláznil ses?",
+    "i need help":"Potřebuju pomoct.","thank you":"Děkuju.","where are you":"Kde jsi?",
+    "follow me":"Pojď za mnou.","get in the car":"Nastup do auta.","get out of the car":"Vystup z auta.",
+    "hurry up":"Dělej, honem.","stay here":"Zůstaň tady.","come here":"Pojď sem.",
+    "leave me alone":"Nech mě být.","help me":"Pomoz mi.","call the police":"Zavolej policii.",
+    "hands up":"Ruce vzhůru!","drop the weapon":"Odhoď zbraň!","you're under arrest":"Jste zatčen.",
+    "freeze":"Ani hnout!","run":"Utíkej!","drive":"Jeď!","what happened":"Co se stalo?",
+    "i don't know":"Nevím.","shut up":"Sklapni.","let's get out of here":"Vypadněme odsud.",
+    "move":"Uhni!","go go go":"Jeď, jeď, jeď!"
   };
-  let recognition = null, listening = false;
-  const normalize = s => s.toLowerCase().replace(/[^a-z0-9' ]/g,"").replace(/\\s+/g," ").trim();
 
-  // Překlady zpracováváme postupně. Nová věta už nezruší překlad předchozí.
-  let translationQueue = Promise.resolve();
-  let lastQueuedText = "";
+  let recognition = null;
+  let wantListening = false;
+  let starting = false;
+  let latestRequest = 0;
+  let lastFinalText = "";
+  const cache = new Map();
+  const queue = [];
+  let activeWorkers = 0;
+  const MAX_WORKERS = 2;
+  const MAX_QUEUE = 8;
 
-  async function translateOne(cleanText) {
-    $("english").textContent = cleanText;
-    const local = phrases[normalize(cleanText)];
+  const normalize = s => (s || "").toLowerCase()
+    .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
+
+  function setStatus(text,on=false) {
+    $("status").textContent = text;
+    $("dot").classList.toggle("on",on);
+  }
+
+  function decodeHtml(value) {
+    const el = document.createElement("textarea");
+    el.innerHTML = value;
+    return el.value;
+  }
+
+  async function requestTranslation(text) {
+    const key = normalize(text);
+    if (cache.has(key)) return cache.get(key);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    try {
+      const url = "https://api.mymemory.translated.net/get?q=" +
+        encodeURIComponent(text) + "&langpair=en|cs";
+      const response = await fetch(url,{signal:controller.signal});
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      const translated = data && data.responseData && data.responseData.translatedText;
+      if (!translated || (data.responseStatus && data.responseStatus !== 200)) {
+        throw new Error("Překladač nevrátil překlad.");
+      }
+      const result = decodeHtml(translated);
+      cache.set(key,result);
+      if (cache.size > 100) cache.delete(cache.keys().next().value);
+      return result;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function addTranslation(text) {
+    const clean = (text || "").replace(/\s+/g," ").trim();
+    const key = normalize(clean);
+    if (!key) return;
+    const requestId = ++latestRequest;
+    const local = phrases[key];
+
     if (local) {
       $("czech").textContent = local;
-      $("hint").textContent = "Překlad z místního slovníku.";
+      $("hint").textContent = "Rychlý překlad z místního slovníku.";
+      return;
+    }
+
+    if (cache.has(key)) {
+      $("czech").textContent = cache.get(key);
+      $("hint").textContent = "Překlad z mezipaměti.";
       return;
     }
 
     $("czech").textContent = "Překládám…";
-    $("hint").textContent = "Zpracovávám větu ve frontě, předchozí překlady se nezahazují.";
-    try {
-      const url = "https://api.mymemory.translated.net/get?q=" +
-        encodeURIComponent(cleanText) + "&langpair=en|cs";
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const data = await response.json();
-      const translated = data && data.responseData && data.responseData.translatedText;
-      if (data.responseStatus === 200 && translated) {
-        const decoded = document.createElement("textarea");
-        decoded.innerHTML = translated;
-        $("czech").textContent = decoded.value;
-        $("hint").textContent = "Automatický online překlad · výsledek může potřebovat jazykovou úpravu.";
-      } else {
-        throw new Error("Překladač nevrátil překlad.");
-      }
-    } catch (error) {
-      $("czech").textContent = "Překlad se nepodařilo načíst.";
-      $("hint").textContent = "Věta zůstala zachována, ale online překladač ji nedokázal přeložit.";
+    $("hint").textContent = "Překlad běží na pozadí.";
+
+    queue.push({text:clean,requestId});
+    if (queue.length > MAX_QUEUE) queue.splice(0,queue.length-MAX_QUEUE);
+    runQueue();
+  }
+
+  function runQueue() {
+    while (activeWorkers < MAX_WORKERS && queue.length) {
+      const item = queue.shift();
+      activeWorkers++;
+      requestTranslation(item.text)
+        .then(result => {
+          if (item.requestId === latestRequest) {
+            $("czech").textContent = result;
+            $("hint").textContent = "Automatický online překlad.";
+          }
+        })
+        .catch(error => {
+          if (item.requestId === latestRequest) {
+            $("czech").textContent = "Překlad se nepodařilo načíst.";
+            $("hint").textContent = error.name === "AbortError"
+              ? "Překlad trval příliš dlouho. Zkusíme další větu."
+              : "Zkontroluj internetové připojení. Poslech může pokračovat.";
+          }
+        })
+        .finally(() => {
+          activeWorkers--;
+          runQueue();
+        });
     }
   }
 
-  function show(text, isPartial = false) {
-    const cleanText = (text || "").trim();
-    if (!cleanText) return;
-    $("english").textContent = cleanText;
-    if (isPartial) return;
-
-    const key = normalize(cleanText);
-    if (!key || key === lastQueuedText) return;
-    lastQueuedText = key;
-    $("czech").textContent = "Čekám na překlad…";
-    $("hint").textContent = "Věta je zařazena do fronty. Dokončené věty nepřeskakujeme.";
-    translationQueue = translationQueue.then(() => translateOne(cleanText));
+  function showFinal(text) {
+    const clean = (text || "").replace(/\s+/g," ").trim();
+    if (!clean) return;
+    const key = normalize(clean);
+    if (!key || key === lastFinalText) return;
+    lastFinalText = key;
+    $("english").textContent = clean;
+    addTranslation(clean);
   }
-  function setStatus(text,on=false) { $("status").textContent=text; $("dot").classList.toggle("on",on); }
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
     recognition.lang = "en-US";
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.onstart = () => { listening=true; $("listen").textContent="■ Zastavit poslech"; setStatus("Poslouchám angličtinu…",true); };
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      starting = false;
+      wantListening = true;
+      $("listen").textContent = "■ Zastavit poslech";
+      setStatus("Poslouchám angličtinu…",true);
+    };
+
     recognition.onresult = event => {
-      let finalText = "";
-      let interim = "";
+      const finalParts = [];
+      const interimParts = [];
       for (let i=event.resultIndex;i<event.results.length;i++) {
-        const t=event.results[i][0].transcript;
-        if(event.results[i].isFinal) finalText += t; else interim += t;
+        const result = event.results[i];
+        const spoken = result[0] && result[0].transcript;
+        if (!spoken) continue;
+        if (result.isFinal) finalParts.push(spoken.trim());
+        else interimParts.push(spoken.trim());
       }
-      if (finalText.trim()) {
-        show(finalText.trim(), false);
-      } else if (interim.trim()) {
-        // Průběžný text pouze zobrazíme. Neposíláme ho k překladu,
-        // protože by zbytečně rušil nebo zahlcoval hotové věty.
-        $("english").textContent = interim.trim();
-        $("hint").textContent = "Naslouchám další větě…";
+
+      if (finalParts.length) showFinal(finalParts.join(" "));
+      if (interimParts.length) {
+        $("english").textContent = interimParts.join(" ");
+        $("hint").textContent = "Rozpoznávám právě mluvenou větu…";
       }
     };
-    recognition.onerror = event => setStatus("Mikrofon: " + event.error, false);
-    recognition.onend = () => { listening=false; $("listen").textContent="🎙 Spustit poslech"; setStatus("Poslech je vypnutý",false); };
-    $("listen").addEventListener("click", () => {
-      if(listening) recognition.stop();
-      else { try { recognition.start(); } catch(e) { setStatus("Poslech se nepodařilo spustit",false); } }
+
+    recognition.onerror = event => {
+      starting = false;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        wantListening = false;
+        setStatus("Povol mikrofon v nastavení prohlížeče",false);
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        setStatus("Chyba mikrofonu: " + event.error,false);
+      }
+    };
+
+    recognition.onend = () => {
+      starting = false;
+      if (wantListening) {
+        setStatus("Obnovuji poslech…",true);
+        setTimeout(() => {
+          if (!wantListening || starting) return;
+          try { starting = true; recognition.start(); }
+          catch(e) { starting = false; }
+        },350);
+      } else {
+        $("listen").textContent = "🎙 Spustit poslech";
+        setStatus("Poslech je vypnutý",false);
+      }
+    };
+
+    $("listen").addEventListener("click",() => {
+      if (wantListening) {
+        wantListening = false;
+        try { recognition.stop(); } catch(e) {}
+        $("listen").textContent = "🎙 Spustit poslech";
+        setStatus("Zastavuji poslech…",false);
+      } else if (!starting) {
+        try {
+          starting = true;
+          recognition.start();
+          setStatus("Spouštím mikrofon…",true);
+        } catch(e) {
+          starting = false;
+          setStatus("Poslech se nepodařilo spustit. Zkus tlačítko znovu.",false);
+        }
+      }
     });
   } else {
-    $("listen").disabled=true;
-    $("listen").textContent="Mikrofon není podporován";
+    $("listen").disabled = true;
+    $("listen").textContent = "Mikrofon není podporován";
     setStatus("Tento prohlížeč nepodporuje rozpoznávání řeči",false);
   }
-  $("test").addEventListener("click",()=>show($("manualText").value.trim()));
-  $("clear").addEventListener("click",()=>{
-    $("english").textContent="Tady se zobrazí rozpoznaná anglická řeč…";
-    $("czech").textContent="České titulky se zobrazí zde.";
-    $("hint").textContent="Zatím jde o test rozpoznávání řeči a několika ukázkových frází.";
-    $("manualText").value="";
-    lastQueuedText = "";
+
+  $("test").addEventListener("click",() => {
+    const value = $("manualText").value.trim();
+    if (value) showFinal(value);
+  });
+
+  $("clear").addEventListener("click",() => {
+    latestRequest++;
+    lastFinalText = "";
+    queue.length = 0;
+    $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
+    $("czech").textContent = "České titulky se zobrazí zde.";
+    $("hint").textContent = "Připraveno k dalšímu testu.";
+    $("manualText").value = "";
   });
 })();
 </script>
