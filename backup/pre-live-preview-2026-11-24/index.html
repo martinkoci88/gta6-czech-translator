@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090d14">
+  <title>GTA Czech Subtitles – prototyp</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090d14; --panel:#131b27; --muted:#93a1b4; --line:#263447; --accent:#a78bfa; --green:#39d98a; }
+    * { box-sizing:border-box }
+    body { margin:0; min-height:100vh; background:radial-gradient(ellipse at top,#172235 0%,var(--bg) 55%); color:#f4f7fb; font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { width:min(760px,100%); margin:auto; padding:28px 18px calc(34px + env(safe-area-inset-bottom)); }
+    header { display:flex; align-items:center; gap:12px; margin-bottom:26px }
+    .logo { width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,#a78bfa,#6d5ce7);display:grid;place-items:center;font-weight:900;font-size:21px;color:#090d14 }
+    h1 { font-size:20px; margin:0 } .sub { color:var(--muted);font-size:13px }
+    .status { display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;margin:14px 0 10px }
+    .dot { width:8px;height:8px;border-radius:50%;background:#77869a } .dot.on {background:var(--green);box-shadow:0 0 12px #39d98a88}
+    .screen { background:rgba(19,27,39,.92);border:1px solid var(--line);border-radius:22px;padding:20px;min-height:245px;box-shadow:0 18px 60px #0005 }
+    .tag { color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px }
+    .english { color:#c3cedc;font-size:18px;min-height:54px;overflow-wrap:anywhere }
+    .divider { height:1px;background:var(--line);margin:20px 0 }
+    .czech { font-size:clamp(25px,6vw,36px);font-weight:750;line-height:1.2;min-height:84px;overflow-wrap:anywhere }
+    .hint { color:var(--muted);font-size:13px;margin-top:12px }
+    .controls { display:flex;gap:12px;margin:18px 0;flex-wrap:wrap }
+    button { border:0;border-radius:15px;padding:15px 18px;font-size:16px;font-weight:700;cursor:pointer }
+    #listen { flex:1;background:var(--accent);color:#100d20;min-width:180px }
+    #listen[disabled] { opacity:.5;cursor:not-allowed }
+    #clear { background:#202c3d;color:#e7edf5 }
+    .manual { background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:18px }
+    label {display:block;font-size:13px;color:var(--muted);margin-bottom:8px}
+    textarea { width:100%;min-height:74px;resize:vertical;background:#0b111a;border:1px solid var(--line);border-radius:12px;padding:12px;color:#fff;font:inherit }
+    .small {font-size:12px;color:var(--muted);margin-top:12px}
+    .warning {border:1px solid #65532a;background:#2a2417;color:#f4d99b;padding:13px 14px;border-radius:14px;font-size:13px;margin-top:18px}
+    footer {color:#718096;font-size:12px;text-align:center;margin-top:22px}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo">CZ</div>
+    <div><h1>GTA Czech Subtitles</h1><div class="sub">První prototyp · angličtina → čeština</div></div>
+  </header>
+  <div class="status"><span class="dot" id="dot"></span><span id="status">Mikrofon zatím není spuštěný</span></div>
+  <section class="screen" aria-live="polite">
+    <div class="tag">Anglický dialog</div>
+    <div class="english" id="english">Tady se zobrazí rozpoznaná anglická řeč…</div>
+    <div class="divider"></div>
+    <div class="tag">Český titulek</div>
+    <div class="czech" id="czech">České titulky se zobrazí zde.</div>
+    <div class="hint" id="hint">Zatím jde o test rozpoznávání řeči a několika ukázkových frází.</div>
+  </section>
+  <div class="controls">
+    <button id="listen">🎙 Spustit poslech</button>
+    <button id="clear">Vymazat</button>
+  </div>
+  <section class="manual">
+    <label for="manualText">Test bez mikrofonu – napiš anglickou větu</label>
+    <textarea id="manualText" placeholder="Např. What are you doing?"></textarea>
+    <div class="controls" style="margin-bottom:0"><button id="test" style="background:#26364b;color:#fff;width:100%">Vyzkoušet překlad</button></div>
+    <div class="small">Známé fráze překládá místní slovník. Ostatní věty se překládají online; pro tuto funkci je potřeba internetové připojení.</div>
+  </section>
+  <div class="warning" id="compat">Poznámka: rozpoznávání řeči závisí na podpoře prohlížeče a povolení mikrofonu. Na iPhonu nemusí být funkce dostupná; pokud se mikrofon nespustí, vyzkoušíme jiný způsob.</div>
+  <footer>Prototyp není propojený s PS5 a zatím neposílá zvuk do hry.</footer>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const phrases = {
+    "have a good day":"Měj hezký den.","have a nice day":"Měj hezký den.","good day":"Hezký den.",
+    "what are you doing":"Co to děláš?","come on":"No tak, dělej.","let's go":"Jdeme na to.",
+    "get down":"K zemi!","watch out":"Pozor!","are you crazy":"Zbláznil ses?",
+    "i need help":"Potřebuju pomoct.","thank you":"Děkuju.","where are you":"Kde jsi?",
+    "follow me":"Pojď za mnou.","get in the car":"Nastup do auta.","get out of the car":"Vystup z auta.",
+    "hurry up":"Dělej, honem.","stay here":"Zůstaň tady.","come here":"Pojď sem.",
+    "leave me alone":"Nech mě být.","help me":"Pomoz mi.","call the police":"Zavolej policii.",
+    "hands up":"Ruce vzhůru!","drop the weapon":"Odhoď zbraň!","you're under arrest":"Jste zatčen.",
+    "freeze":"Ani hnout!","run":"Utíkej!","drive":"Jeď!","what happened":"Co se stalo?",
+    "i don't know":"Nevím.","shut up":"Sklapni.","let's get out of here":"Vypadněme odsud.",
+    "move":"Uhni!","go go go":"Jeď, jeď, jeď!"
+  };
+
+  let recognition = null;
+  let wantListening = false;
+  let starting = false;
+  let clearGeneration = 0;
+  let lastFinalText = "";
+  const cache = new Map();
+  const inFlight = new Map();
+  const queue = [];
+  let activeWorkers = 0;
+  let nextDisplayId = 1;
+  let nextDisplayInOrder = 1;
+  const completed = new Map();
+  let interimTimer = null;
+  let previewTimer = null;
+  let previewSequence = 0;
+  let lastPreviewKey = "";
+  let pendingFinalText = "";
+  let finalFlushTimer = null;
+  // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
+  const FINAL_FLUSH_DELAY = 280;
+  // Dva požadavky zrychlí práci, výsledky ale zobrazujeme vždy v pořadí řeči.
+  const MAX_WORKERS = 2;
+  const MAX_QUEUE = 30;
+
+  const normalize = s => (s || "").toLowerCase()
+    .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
+
+  function setStatus(text,on=false) {
+    $("status").textContent = text;
+    $("dot").classList.toggle("on",on);
+  }
+
+  function decodeHtml(value) {
+    const el = document.createElement("textarea");
+    el.innerHTML = value;
+    return el.value;
+  }
+
+  async function requestTranslation(text) {
+    const key = normalize(text);
+    if (!key) return "";
+    if (cache.has(key)) return cache.get(key);
+    if (inFlight.has(key)) return inFlight.get(key);
+
+    const task = (async () => {
+      const googleController = new AbortController();
+      const googleTimeout = setTimeout(() => googleController.abort(), 3500);
+      try {
+        const googleUrl = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
+          encodeURIComponent(text);
+        const response = await fetch(googleUrl, { signal: googleController.signal });
+        if (!response.ok) throw new Error("Google překladač HTTP " + response.status);
+        const data = await response.json();
+        const translated = Array.isArray(data?.[0])
+          ? data[0].map(part => part?.[0] || "").join("").trim()
+          : "";
+        if (!translated || normalize(translated) === key) {
+          throw new Error("První překladač nevrátil český překlad.");
+        }
+        cache.set(key, translated);
+        if (cache.size > 400) cache.delete(cache.keys().next().value);
+        return translated;
+      } catch (googleError) {
+        const fallbackController = new AbortController();
+        const fallbackTimeout = setTimeout(() => fallbackController.abort(), 4500);
+        try {
+          const fallbackUrl = "https://api.mymemory.translated.net/get?q=" +
+            encodeURIComponent(text) + "&langpair=en|cs";
+          const response = await fetch(fallbackUrl, { signal: fallbackController.signal });
+          if (!response.ok) throw new Error("Záložní překladač HTTP " + response.status);
+          const data = await response.json();
+          const translated = data?.responseData?.translatedText;
+          if (!translated || (data.responseStatus && data.responseStatus !== 200)) {
+            throw new Error("Záložní překladač nevrátil překlad.");
+          }
+          const result = decodeHtml(translated).trim();
+          if (!result || normalize(result) === key) {
+            throw new Error("Překladač vrátil původní anglický text.");
+          }
+          cache.set(key, result);
+          if (cache.size > 400) cache.delete(cache.keys().next().value);
+          return result;
+        } finally {
+          clearTimeout(fallbackTimeout);
+        }
+      } finally {
+        clearTimeout(googleTimeout);
+        inFlight.delete(key);
+      }
+    })();
+    inFlight.set(key, task);
+    return task;
+  }
+
+  function addTranslation(text) {
+    const clean = (text || "").replace(/\s+/g," ").trim();
+    const key = normalize(clean);
+    if (!key) return;
+
+    // Každá rozpoznaná věta dostane vlastní položku. Výsledky se zobrazí
+    // v pořadí, v jakém byly vysloveny, místo zahazování pomalejších překladů.
+    const displayId = nextDisplayId++;
+    queue.push({
+      text: clean,
+      generation: clearGeneration,
+      displayId,
+      local: phrases[key] || cache.get(key) || null
+    });
+
+    if (queue.length > MAX_QUEUE) {
+      // Při zahlcení ponecháme starší dialogy a upozorníme na čekající frontu.
+      queue.pop();
+      nextDisplayId--;
+      $("hint").textContent = "Překladač nestíhá – zpomal prosím přehrávání nebo zkus znovu.";
+      return;
+    }
+    runQueue();
+  }
+
+  function showCompletedInOrder() {
+    while (completed.has(nextDisplayInOrder)) {
+      const result = completed.get(nextDisplayInOrder);
+      completed.delete(nextDisplayInOrder);
+      nextDisplayInOrder++;
+
+      if (result.generation !== clearGeneration) continue;
+      $("english").textContent = result.text;
+      if (result.error) {
+        $("czech").textContent = "Překlad se nepodařilo načíst.";
+        $("hint").textContent = result.error.name === "AbortError"
+          ? "Překlad trval příliš dlouho. Poslech pokračuje."
+          : "Zkontroluj internetové připojení. Poslech pokračuje.";
+      } else {
+        $("czech").textContent = result.translation;
+        $("hint").textContent = result.local
+          ? "Rychlý překlad z místního slovníku nebo mezipaměti."
+          : "Automatický online překlad.";
+      }
+    }
+  }
+
+  function runQueue() {
+    while (activeWorkers < MAX_WORKERS && queue.length) {
+      const item = queue.shift();
+      activeWorkers++;
+
+      const translation = item.local
+        ? Promise.resolve(item.local)
+        : requestTranslation(item.text);
+
+      translation
+        .then(result => {
+          if (item.generation === clearGeneration) {
+            completed.set(item.displayId, {
+              generation: item.generation,
+              text: item.text,
+              translation: result,
+              local: Boolean(item.local)
+            });
+            showCompletedInOrder();
+          }
+        })
+        .catch(error => {
+          if (item.generation === clearGeneration) {
+            completed.set(item.displayId, {
+              generation: item.generation,
+              text: item.text,
+              error
+            });
+            showCompletedInOrder();
+          }
+        })
+        .finally(() => {
+          activeWorkers--;
+          runQueue();
+        });
+    }
+  }
+
+  function showFinal(text) {
+    if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
+    // Zneplatni rozpracovaný náhled, aby nepřepsal potvrzený titulek.
+    previewSequence++;
+    if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    lastPreviewKey = "";
+    const clean = (text || "").replace(/\s+/g," ").trim();
+    if (!clean) return;
+    const key = normalize(clean);
+    if (!key || key === lastFinalText) return;
+    lastFinalText = key;
+    $("english").textContent = clean;
+    addTranslation(clean);
+  }
+
+  function flushFinalText() {
+    if (finalFlushTimer) { clearTimeout(finalFlushTimer); finalFlushTimer = null; }
+    const text = pendingFinalText;
+    pendingFinalText = "";
+    if (text) showFinal(text);
+  }
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      starting = false;
+      wantListening = true;
+      $("listen").textContent = "■ Zastavit poslech";
+      setStatus("Poslouchám angličtinu…",true);
+    };
+
+    recognition.onresult = event => {
+      const finalParts = [];
+      const interimParts = [];
+      for (let i=event.resultIndex;i<event.results.length;i++) {
+        const result = event.results[i];
+        const spoken = result[0] && result[0].transcript;
+        if (!spoken) continue;
+        if (result.isFinal) finalParts.push(spoken.trim());
+        else interimParts.push(spoken.trim());
+      }
+
+      // Finální části zpracujeme vždy, ale současně nezahazujeme novou
+      // průběžnou část. Pro náhled spojíme právě potvrzený úsek s tím,
+      // co rozpoznávání právě slyší – jinak se konec věty ztrácel.
+      if (finalParts.length) {
+        pendingFinalText = [pendingFinalText, ...finalParts]
+          .filter(Boolean).join(" ").replace(/\s+/g," ").trim();
+        if (finalFlushTimer) clearTimeout(finalFlushTimer);
+        finalFlushTimer = setTimeout(flushFinalText, FINAL_FLUSH_DELAY);
+      }
+
+      if (interimParts.length) {
+        const preview = [pendingFinalText, ...interimParts]
+          .filter(Boolean).join(" ").replace(/\s+/g," ").trim();
+        // Během mluvení zobrazujeme živý anglický přepis, ale neposíláme
+        // každou změnu do pomalého externího překladače. Tyto souběžné
+        // požadavky zahlcovaly síť a zdržovaly finální české titulky.
+        $("english").textContent = preview;
+        $("hint").textContent = "Zachycuji dialog – český překlad připravuji průběžně po krátkých úsecích.";
+        if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+        previewSequence++;
+        lastPreviewKey = "";
+      }
+    };
+
+    recognition.onerror = event => {
+      starting = false;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        wantListening = false;
+        setStatus("Povol mikrofon v nastavení prohlížeče",false);
+      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+        setStatus("Chyba mikrofonu: " + event.error,false);
+      }
+    };
+
+    recognition.onend = () => {
+      starting = false;
+      // Při zastavení nebo automatickém restartu neztrať poslední rozpoznaná slova.
+      if (pendingFinalText) flushFinalText();
+      if (wantListening) {
+        setStatus("Obnovuji poslech…",true);
+        setTimeout(() => {
+          if (!wantListening || starting) return;
+          try { starting = true; recognition.start(); }
+          catch(e) { starting = false; }
+        },350);
+      } else {
+        $("listen").textContent = "🎙 Spustit poslech";
+        setStatus("Poslech je vypnutý",false);
+      }
+    };
+
+    $("listen").addEventListener("click",() => {
+      if (wantListening) {
+        wantListening = false;
+        try { recognition.stop(); } catch(e) {}
+        $("listen").textContent = "🎙 Spustit poslech";
+        setStatus("Zastavuji poslech…",false);
+      } else if (!starting) {
+        try {
+          starting = true;
+          recognition.start();
+          setStatus("Spouštím mikrofon…",true);
+        } catch(e) {
+          starting = false;
+          setStatus("Poslech se nepodařilo spustit. Zkus tlačítko znovu.",false);
+        }
+      }
+    });
+  } else {
+    $("listen").disabled = true;
+    $("listen").textContent = "Mikrofon není podporován";
+    setStatus("Tento prohlížeč nepodporuje rozpoznávání řeči",false);
+  }
+
+  $("test").addEventListener("click",() => {
+    const value = $("manualText").value.trim();
+    if (value) showFinal(value);
+  });
+
+  $("clear").addEventListener("click",() => {
+    clearGeneration++;
+    nextDisplayId = 1;
+    nextDisplayInOrder = 1;
+    completed.clear();
+    if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
+    if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    if (finalFlushTimer) { clearTimeout(finalFlushTimer); finalFlushTimer = null; }
+    pendingFinalText = "";
+    previewSequence++;
+    lastPreviewKey = "";
+    lastFinalText = "";
+    queue.length = 0;
+    $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
+    $("czech").textContent = "České titulky se zobrazí zde.";
+    $("hint").textContent = "Připraveno k dalšímu testu.";
+    $("manualText").value = "";
+  });
+})();
+</script>
+</body>
+</html>
