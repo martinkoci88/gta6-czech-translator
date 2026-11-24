@@ -93,6 +93,10 @@
   let previewTimer = null;
   let previewSequence = 0;
   let lastPreviewKey = "";
+  let pendingFinalText = "";
+  let finalFlushTimer = null;
+  // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
+  const FINAL_FLUSH_DELAY = 850;
   // Dva požadavky zrychlí práci, výsledky ale zobrazujeme vždy v pořadí řeči.
   const MAX_WORKERS = 2;
   const MAX_QUEUE = 30;
@@ -236,6 +240,13 @@
     addTranslation(clean);
   }
 
+  function flushFinalText() {
+    if (finalFlushTimer) { clearTimeout(finalFlushTimer); finalFlushTimer = null; }
+    const text = pendingFinalText;
+    pendingFinalText = "";
+    if (text) showFinal(text);
+  }
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
@@ -266,12 +277,15 @@
       // průběžnou část. Pro náhled spojíme právě potvrzený úsek s tím,
       // co rozpoznávání právě slyší – jinak se konec věty ztrácel.
       if (finalParts.length) {
-        finalParts.forEach(showFinal);
+        pendingFinalText = [pendingFinalText, ...finalParts]
+          .filter(Boolean).join(" ").replace(/\s+/g," ").trim();
+        if (finalFlushTimer) clearTimeout(finalFlushTimer);
+        finalFlushTimer = setTimeout(flushFinalText, FINAL_FLUSH_DELAY);
       }
 
       if (interimParts.length) {
-        const preview = finalParts.concat(interimParts)
-          .join(" ").replace(/\s+/g," ").trim();
+        const preview = [pendingFinalText, ...interimParts]
+          .filter(Boolean).join(" ").replace(/\s+/g," ").trim();
         const previewKey = normalize(preview);
         $("english").textContent = preview;
         $("hint").textContent = "Průběžně překládám celý aktuální dialog…";
@@ -309,6 +323,8 @@
 
     recognition.onend = () => {
       starting = false;
+      // Při zastavení nebo automatickém restartu neztrať poslední rozpoznaná slova.
+      if (pendingFinalText) flushFinalText();
       if (wantListening) {
         setStatus("Obnovuji poslech…",true);
         setTimeout(() => {
@@ -357,6 +373,8 @@
     completed.clear();
     if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
     if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    if (finalFlushTimer) { clearTimeout(finalFlushTimer); finalFlushTimer = null; }
+    pendingFinalText = "";
     previewSequence++;
     lastPreviewKey = "";
     lastFinalText = "";
