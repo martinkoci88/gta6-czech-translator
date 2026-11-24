@@ -151,6 +151,7 @@
     if (queue.length > MAX_QUEUE) {
       // Při zahlcení ponecháme starší dialogy a upozorníme na čekající frontu.
       queue.pop();
+      nextDisplayId--;
       $("hint").textContent = "Překladač nestíhá – zpomal prosím přehrávání nebo zkus znovu.";
       return;
     }
