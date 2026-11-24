@@ -12,10 +12,10 @@ ui_exit,Exit,Odejít,Menu,reviewed
 ui_restart,Restart,Restartovat,Menu,reviewed
 ui_confirm,Confirm,Potvrdit,Menu,reviewed
 ui_cancel,Cancel,Zrušit,Menu,reviewed
-ui_yes,Yes,Ano,Menu,draft
-ui_no,No,Ne,Menu,draft
-ui_accept,Accept,Přijmout,Menu,draft
-ui_decline,Decline,Odmítnout,Menu,draft
+ui_yes,Yes,Ano,Menu,reviewed
+ui_no,No,Ne,Menu,reviewed
+ui_accept,Accept,Přijmout,Menu,reviewed
+ui_decline,Decline,Odmítnout,Menu,reviewed
 game_pause,Game Paused,Hra pozastavena,Gameplay,draft
 game_over,Game Over,Konec hry,Gameplay,draft
 game_wasted,Wasted,Zabit,Gameplay,draft
