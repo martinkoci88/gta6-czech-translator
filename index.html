@@ -86,10 +86,12 @@
   const cache = new Map();
   const queue = [];
   let activeWorkers = 0;
-  let latestDisplayId = 0;
+  let nextDisplayId = 1;
+  let nextDisplayInOrder = 1;
+  const completed = new Map();
   let interimTimer = null;
-  // Zpracovávej titulky postupně, aby se překlady nepředbíhaly a neztrácely.
-  const MAX_WORKERS = 3;
+  // Dva požadavky zrychlí práci, výsledky ale zobrazujeme vždy v pořadí řeči.
+  const MAX_WORKERS = 2;
   const MAX_QUEUE = 30;
 
   const normalize = s => (s || "").toLowerCase()
@@ -138,7 +140,7 @@
 
     // Každá rozpoznaná věta dostane vlastní položku. Výsledky se zobrazí
     // v pořadí, v jakém byly vysloveny, místo zahazování pomalejších překladů.
-    const displayId = ++latestDisplayId;
+    const displayId = nextDisplayId++;
     queue.push({
       text: clean,
       generation: clearGeneration,
@@ -147,9 +149,34 @@
     });
 
     if (queue.length > MAX_QUEUE) {
-      queue.splice(0, queue.length - MAX_QUEUE);
+      // Při zahlcení ponecháme starší dialogy a upozorníme na čekající frontu.
+      queue.pop();
+      $("hint").textContent = "Překladač nestíhá – zpomal prosím přehrávání nebo zkus znovu.";
+      return;
     }
     runQueue();
+  }
+
+  function showCompletedInOrder() {
+    while (completed.has(nextDisplayInOrder)) {
+      const result = completed.get(nextDisplayInOrder);
+      completed.delete(nextDisplayInOrder);
+      nextDisplayInOrder++;
+
+      if (result.generation !== clearGeneration) continue;
+      $("english").textContent = result.text;
+      if (result.error) {
+        $("czech").textContent = "Překlad se nepodařilo načíst.";
+        $("hint").textContent = result.error.name === "AbortError"
+          ? "Překlad trval příliš dlouho. Poslech pokračuje."
+          : "Zkontroluj internetové připojení. Poslech pokračuje.";
+      } else {
+        $("czech").textContent = result.translation;
+        $("hint").textContent = result.local
+          ? "Rychlý překlad z místního slovníku nebo mezipaměti."
+          : "Automatický online překlad.";
+      }
+    }
   }
 
   function runQueue() {
@@ -163,21 +190,24 @@
 
       translation
         .then(result => {
-          if (item.generation === clearGeneration && item.displayId === latestDisplayId) {
-            $("english").textContent = item.text;
-            $("czech").textContent = result;
-            $("hint").textContent = item.local
-              ? "Rychlý překlad z místního slovníku nebo mezipaměti."
-              : "Automatický online překlad.";
+          if (item.generation === clearGeneration) {
+            completed.set(item.displayId, {
+              generation: item.generation,
+              text: item.text,
+              translation: result,
+              local: Boolean(item.local)
+            });
+            showCompletedInOrder();
           }
         })
         .catch(error => {
-          if (item.generation === clearGeneration && item.displayId === latestDisplayId) {
-            $("english").textContent = item.text;
-            $("czech").textContent = "Překlad se nepodařilo načíst.";
-            $("hint").textContent = error.name === "AbortError"
-              ? "Překlad trval příliš dlouho. Zkusíme další větu."
-              : "Zkontroluj internetové připojení. Poslech může pokračovat.";
+          if (item.generation === clearGeneration) {
+            completed.set(item.displayId, {
+              generation: item.generation,
+              text: item.text,
+              error
+            });
+            showCompletedInOrder();
           }
         })
         .finally(() => {
@@ -227,16 +257,11 @@
       if (finalParts.length) {
         finalParts.forEach(showFinal);
       } else if (interimParts.length) {
+        // Průběžný text zobrazujeme jen jako náhled. Překládáme až potvrzené
+        // věty, aby se neposílaly opakované a neúplné úryvky do online API.
         const preview = interimParts.join(" ").replace(/\s+/g," ").trim();
         $("english").textContent = preview;
-        $("hint").textContent = "Rozpoznávám řeč; připravuji průběžný překlad…";
-        if (interimTimer) clearTimeout(interimTimer);
-        if (preview.split(/\s+/).length >= 4) {
-          interimTimer = setTimeout(() => {
-            interimTimer = null;
-            if (normalize(preview) !== lastFinalText) addTranslation(preview);
-          }, 550);
-        }
+        $("hint").textContent = "Rozpoznávám dialog…";
       }
     };
 
@@ -295,7 +320,9 @@
 
   $("clear").addEventListener("click",() => {
     clearGeneration++;
-    latestDisplayId++;
+    nextDisplayId = 1;
+    nextDisplayInOrder = 1;
+    completed.clear();
     if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
     lastFinalText = "";
     queue.length = 0;
