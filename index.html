@@ -57,7 +57,7 @@
     <label for="manualText">Test bez mikrofonu – napiš anglickou větu</label>
     <textarea id="manualText" placeholder="Např. What are you doing?"></textarea>
     <div class="controls" style="margin-bottom:0"><button id="test" style="background:#26364b;color:#fff;width:100%">Vyzkoušet překlad</button></div>
-    <div class="small">Tato testovací verze zatím překládá jen několik přednastavených frází. Neznámé věty se zobrazí v angličtině.</div>
+    <div class="small">Známé fráze překládá místní slovník. Ostatní věty se překládají online; pro tuto funkci je potřeba internetové připojení.</div>
   </section>
   <div class="warning" id="compat">Poznámka: rozpoznávání řeči závisí na podpoře prohlížeče a povolení mikrofonu. Na iPhonu nemusí být funkce dostupná; pokud se mikrofon nespustí, vyzkoušíme jiný způsob.</div>
   <footer>Prototyp není propojený s PS5 a zatím neposílá zvuk do hry.</footer>
@@ -99,11 +99,45 @@
   };
   let recognition = null, listening = false;
   const normalize = s => s.toLowerCase().replace(/[^a-z0-9' ]/g,"").replace(/\s+/g," ").trim();
-  function show(text) {
-    $("english").textContent = text || "Nebylo rozpoznáno žádné slovo.";
-    const translated = phrases[normalize(text)];
-    $("czech").textContent = translated || "Překlad této věty zatím není v testovacím slovníku.";
-    $("hint").textContent = translated ? "Ukázkový překlad z místního slovníku." : "V dalším kroku připojíme automatický překlad celých vět.";
+  let translationRequest = 0;
+  async function show(text) {
+    const cleanText = (text || "").trim();
+    $("english").textContent = cleanText || "Nebylo rozpoznáno žádné slovo.";
+    if (!cleanText) {
+      $("czech").textContent = "České titulky se zobrazí zde.";
+      $("hint").textContent = "";
+      return;
+    }
+    const local = phrases[normalize(cleanText)];
+    if (local) {
+      $("czech").textContent = local;
+      $("hint").textContent = "Překlad z místního slovníku.";
+      return;
+    }
+    const requestId = ++translationRequest;
+    $("czech").textContent = "Překládám…";
+    $("hint").textContent = "Překlad celé věty přes online překladač.";
+    try {
+      const url = "https://api.mymemory.translated.net/get?q=" +
+        encodeURIComponent(cleanText) + "&langpair=en|cs";
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      if (requestId !== translationRequest) return;
+      const translated = data && data.responseData && data.responseData.translatedText;
+      if (data.responseStatus === 200 && translated) {
+        const decoded = document.createElement("textarea");
+        decoded.innerHTML = translated;
+        $("czech").textContent = decoded.value;
+        $("hint").textContent = "Automatický online překlad · výsledek může potřebovat jazykovou úpravu.";
+      } else {
+        throw new Error("Překladač nevrátil překlad.");
+      }
+    } catch (error) {
+      if (requestId !== translationRequest) return;
+      $("czech").textContent = "Překlad se nepodařilo načíst.";
+      $("hint").textContent = "Zkontroluj internetové připojení. Pokud problém trvá, online překladač může být dočasně nedostupný.";
+    }
   }
   function setStatus(text,on=false) { $("status").textContent=text; $("dot").classList.toggle("on",on); }
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -120,8 +154,12 @@
         const t=event.results[i][0].transcript;
         if(event.results[i].isFinal) finalText += t; else interim += t;
       }
-      const value = finalText || interim;
-      if(value) show(value);
+      if(finalText.trim()) show(finalText.trim());
+      else if(interim.trim()) {
+        $("english").textContent = interim.trim();
+        $("czech").textContent = "Poslouchám…";
+        $("hint").textContent = "Překlad se spustí po dokončení věty.";
+      }
     };
     recognition.onerror = event => setStatus("Mikrofon: " + event.error, false);
     recognition.onend = () => { listening=false; $("listen").textContent="🎙 Spustit poslech"; setStatus("Poslech je vypnutý",false); };
