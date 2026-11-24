@@ -1,0 +1,7 @@
+key,english,czech,context,status
+ui_settings,Settings,Nastavení,Menu,reviewed
+ui_save,Save,Uložit,Menu,reviewed
+ui_load,Load,Načíst,Menu,reviewed
+ui_back,Back,Zpět,Menu,reviewed
+ui_continue,Continue,Pokračovat,Menu,reviewed
+mission_complete,Mission complete,Mise dokončena,Gameplay,reviewed
