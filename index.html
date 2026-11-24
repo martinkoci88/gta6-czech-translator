@@ -84,6 +84,7 @@
   let clearGeneration = 0;
   let lastFinalText = "";
   const cache = new Map();
+  const inFlight = new Map();
   const queue = [];
   let activeWorkers = 0;
   let nextDisplayId = 1;
@@ -117,27 +118,36 @@
 
   async function requestTranslation(text) {
     const key = normalize(text);
+    if (!key) return "";
     if (cache.has(key)) return cache.get(key);
+    // Stejný průběžný úryvek může přijít vícekrát. Sdílej jeden požadavek,
+    // aby se zbytečně nezatěžovalo připojení ani překladová služba.
+    if (inFlight.has(key)) return inFlight.get(key);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6500);
-    try {
-      const url = "https://api.mymemory.translated.net/get?q=" +
-        encodeURIComponent(text) + "&langpair=en|cs";
-      const response = await fetch(url,{signal:controller.signal});
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const data = await response.json();
-      const translated = data && data.responseData && data.responseData.translatedText;
-      if (!translated || (data.responseStatus && data.responseStatus !== 200)) {
-        throw new Error("Překladač nevrátil překlad.");
+    const task = (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 6500);
+      try {
+        const url = "https://api.mymemory.translated.net/get?q=" +
+          encodeURIComponent(text) + "&langpair=en|cs";
+        const response = await fetch(url,{signal:controller.signal});
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const data = await response.json();
+        const translated = data && data.responseData && data.responseData.translatedText;
+        if (!translated || (data.responseStatus && data.responseStatus !== 200)) {
+          throw new Error("Překladač nevrátil překlad.");
+        }
+        const result = decodeHtml(translated);
+        cache.set(key,result);
+        if (cache.size > 250) cache.delete(cache.keys().next().value);
+        return result;
+      } finally {
+        clearTimeout(timeout);
+        inFlight.delete(key);
       }
-      const result = decodeHtml(translated);
-      cache.set(key,result);
-      if (cache.size > 100) cache.delete(cache.keys().next().value);
-      return result;
-    } finally {
-      clearTimeout(timeout);
-    }
+    })();
+    inFlight.set(key,task);
+    return task;
   }
 
   function addTranslation(text) {
