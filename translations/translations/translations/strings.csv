@@ -5,48 +5,6 @@ ui_load,Load,Načíst,Menu,reviewed
 ui_back,Back,Zpět,Menu,reviewed
 ui_continue,Continue,Pokračovat,Menu,reviewed
 mission_complete,Mission complete,Mise dokončena,Gameplay,reviewed
-ui_new_game,New Game,Nová hra
-ui_resume,Resume,Pokračovat
-ui_quit,Quit,Ukončit
-ui_exit,Exit,Odejít
-ui_restart,Restart,Restartovat
-ui_confirm,Confirm,Potvrdit
-ui_cancel,Cancel,Zrušit
-ui_yes,Yes,Ano
-ui_no,No,Ne
-ui_accept,Accept,Přijmout
-ui_decline,Decline,Odmítnout
-game_pause,Game Paused,Hra pozastavena
-game_over,Game Over,Konec hry
-game_wasted,Wasted,Zabit
-game_wanted_level,Wanted Level,Úroveň hledanosti
-game_safehouse,Safehouse,Úkryt
-game_vehicle,Vehicle,Vozidlo
-game_weapon,Weapon,Zbraň
-game_money,Money,Peníze
-game_health,Health,Zdraví
-game_armor,Armor,Brnění
-mission_start,Mission Started,Mise zahájena
-mission_failed,Mission Failed,Mise selhala
-mission_passed,Mission Passed,Mise splněna
-mission_objective,Objective,Cíl
-mission_new_objective,New Objective,Nový cíl
-mission_checkpoint,Checkpoint,Kontrolní bod
-mission_abandon,Abandon Mission,Opustit misi
-control_interact,Interact,Interakce
-control_enter_vehicle,Enter Vehicle,Nastoupit do vozidla
-control_exit_vehicle,Exit Vehicle,Vystoupit z vozidla
-control_reload,Reload,Přebít
-control_aim,Aim,Mířit
-control_shoot,Shoot,Střílet
-control_sprint,Sprint,Běh
-control_crouch,Crouch,Přikrčit se
-notification_saved,Game Saved,Hra uložena
-notification_loading,Loading,Načítání
-notification_updated,Updated,Aktualizováno
-error_connection,Connection Error,Chyba připojení
-error_save,Save Failed,Uložení selhalo
-error_load,Load Failed,Načtení selhalo
 ui_new_game,New Game,Nová hra,Menu,reviewed
 ui_resume,Resume,Pokračovat,Menu,reviewed
 ui_quit,Quit,Ukončit,Menu,reviewed
@@ -54,3 +12,38 @@ ui_exit,Exit,Odejít,Menu,reviewed
 ui_restart,Restart,Restartovat,Menu,reviewed
 ui_confirm,Confirm,Potvrdit,Menu,reviewed
 ui_cancel,Cancel,Zrušit,Menu,reviewed
+ui_yes,Yes,Ano,Menu,draft
+ui_no,No,Ne,Menu,draft
+ui_accept,Accept,Přijmout,Menu,draft
+ui_decline,Decline,Odmítnout,Menu,draft
+game_pause,Game Paused,Hra pozastavena,Gameplay,draft
+game_over,Game Over,Konec hry,Gameplay,draft
+game_wasted,Wasted,Zabit,Gameplay,draft
+game_wanted_level,Wanted Level,Úroveň hledanosti,Gameplay,draft
+game_safehouse,Safehouse,Úkryt,Gameplay,draft
+game_vehicle,Vehicle,Vozidlo,Gameplay,draft
+game_weapon,Weapon,Zbraň,Gameplay,draft
+game_money,Money,Peníze,Gameplay,draft
+game_health,Health,Zdraví,Gameplay,draft
+game_armor,Armor,Brnění,Gameplay,draft
+mission_start,Mission Started,Mise zahájena,Missions,draft
+mission_failed,Mission Failed,Mise selhala,Missions,draft
+mission_passed,Mission Passed,Mise splněna,Missions,draft
+mission_objective,Objective,Cíl,Missions,draft
+mission_new_objective,New Objective,Nový cíl,Missions,draft
+mission_checkpoint,Checkpoint,Kontrolní bod,Missions,draft
+mission_abandon,Abandon Mission,Opustit misi,Missions,draft
+control_interact,Interact,Interakce,Controls,draft
+control_enter_vehicle,Enter Vehicle,Nastoupit do vozidla,Controls,draft
+control_exit_vehicle,Exit Vehicle,Vystoupit z vozidla,Controls,draft
+control_reload,Reload,Přebít,Controls,draft
+control_aim,Aim,Mířit,Controls,draft
+control_shoot,Shoot,Střílet,Controls,draft
+control_sprint,Sprint,Běh,Controls,draft
+control_crouch,Crouch,Přikrčit se,Controls,draft
+notification_saved,Game Saved,Hra uložena,Notifications,draft
+notification_loading,Loading,Načítání,Notifications,draft
+notification_updated,Updated,Aktualizováno,Notifications,draft
+error_connection,Connection Error,Chyba připojení,Errors,draft
+error_save,Save Failed,Uložení selhalo,Errors,draft
+error_load,Load Failed,Načtení selhalo,Errors,draft
