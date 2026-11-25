@@ -102,8 +102,8 @@
   let finalFlushTimer = null;
   // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
   const FINAL_FLUSH_DELAY = 160;
-  // Tři souběžné překlady pomohou při rychlém dialogu; pořadí titulků zůstává zachované.
-  const MAX_WORKERS = 2;
+  // Jeden online překlad najednou. Tím omezíme HTTP 429 a zachováme pořadí titulků.
+  const MAX_WORKERS = 1;
   const MAX_QUEUE = 6;
 
   const normalize = s => (s || "").toLowerCase()
@@ -120,71 +120,94 @@
     return el.value;
   }
 
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
   async function requestTranslation(text) {
     const key = normalize(text);
     if (!key) return "";
     if (cache.has(key)) return cache.get(key);
     if (inFlight.has(key)) return inFlight.get(key);
 
-    // Oba překladače spustíme současně. Použijeme první platnou odpověď,
-    // takže pomalý nebo nedostupný poskytovatel nezdržuje druhý.
+    // Poskytovatele zkoušíme postupně, nikdy současně. Při HTTP 429
+    // krátce čekáme a opakujeme nejvýše jednou, místo zahlcení služby.
     const task = (async () => {
-      const googleController = new AbortController();
-      const memoryController = new AbortController();
-      const googleTimeout = setTimeout(() => googleController.abort(), 9000);
-      const memoryTimeout = setTimeout(() => memoryController.abort(), 9000);
-
-      const googleRequest = async () => {
-        const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
-          encodeURIComponent(text);
-        const response = await fetch(url, { signal: googleController.signal });
-        if (!response.ok) throw new Error("Google překladač HTTP " + response.status);
-        const data = await response.json();
-        const result = Array.isArray(data?.[0])
-          ? data[0].map(part => part?.[0] || "").join("").trim()
-          : "";
-        if (!result || normalize(result) === key) throw new Error("Google překladač nevrátil český překlad.");
-        return result;
-      };
-
-      const memoryRequest = async () => {
-        const url = "https://api.mymemory.translated.net/get?q=" +
-          encodeURIComponent(text) + "&langpair=en|cs";
-        const response = await fetch(url, { signal: memoryController.signal });
-        if (!response.ok) throw new Error("Záložní překladač HTTP " + response.status);
-        const data = await response.json();
-        const raw = data?.responseData?.translatedText;
-        if (!raw || (data.responseStatus != null && Number(data.responseStatus) !== 200)) {
-          const detail = data?.responseDetails || data?.responseStatus || "bez podrobností";
-          throw new Error("MyMemory: " + detail);
+      const providers = [
+        {
+          name: "Google",
+          url: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
+            encodeURIComponent(text),
+          parse: async response => {
+            const data = await response.json();
+            return Array.isArray(data?.[0])
+              ? data[0].map(part => part?.[0] || "").join("").trim()
+              : "";
+          }
+        },
+        {
+          name: "MyMemory",
+          url: "https://api.mymemory.translated.net/get?q=" +
+            encodeURIComponent(text) + "&langpair=en|cs",
+          parse: async response => {
+            const data = await response.json();
+            const raw = data?.responseData?.translatedText;
+            if (!raw || (data.responseStatus != null && Number(data.responseStatus) !== 200)) {
+              throw new Error("MyMemory: " + (data?.responseDetails || data?.responseStatus || "bez podrobností"));
+            }
+            return decodeHtml(raw).trim();
+          }
         }
-        const result = decodeHtml(raw).trim();
-        if (!result || normalize(result) === key) throw new Error("Záložní překladač vrátil původní text.");
-        return result;
-      };
+      ];
 
-      try {
-        const result = await Promise.any([googleRequest(), memoryRequest()]);
-        cache.set(key, result);
-        if (cache.size > 600) cache.delete(cache.keys().next().value);
-        return result;
-      } catch (error) {
-        const reasons = error instanceof AggregateError
-          ? error.errors.map(e => e?.message || String(e)).join(" | ")
-          : (error?.message || String(error));
-        throw new Error("Překlad selhal – " + reasons +
-          ". Zkontroluj internet a případné omezení překladové služby.");
-      } finally {
-        clearTimeout(googleTimeout);
-        clearTimeout(memoryTimeout);
-        googleController.abort();
-        memoryController.abort();
-        inFlight.delete(key);
+      const failures = [];
+      for (const provider of providers) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 7000);
+          try {
+            const response = await fetch(provider.url, { signal: controller.signal });
+            if (response.status === 429) {
+              const retryAfter = Number(response.headers.get("Retry-After"));
+              if (attempt === 0) {
+                await wait(Number.isFinite(retryAfter) && retryAfter > 0
+                  ? Math.min(retryAfter * 1000, 5000)
+                  : 2200);
+                continue;
+              }
+              throw new Error(provider.name + " HTTP 429 – služba omezuje požadavky");
+            }
+            if (!response.ok) throw new Error(provider.name + " HTTP " + response.status);
+
+            const result = await provider.parse(response);
+            if (!result || normalize(result) === key) {
+              throw new Error(provider.name + " nevrátil český překlad");
+            }
+
+            cache.set(key, result);
+            if (cache.size > 600) cache.delete(cache.keys().next().value);
+            return result;
+          } catch (error) {
+            failures.push(error?.message || String(error));
+            if (error?.name === "AbortError") {
+              failures.push(provider.name + " – vypršel časový limit");
+            }
+            break;
+          } finally {
+            clearTimeout(timeout);
+            controller.abort();
+          }
+        }
       }
+
+      throw new Error("Překlad selhal – " + failures.join(" | ") +
+        ". Zkontroluj připojení nebo dočasné omezení překladové služby.");
     })();
 
     inFlight.set(key, task);
-    return task;
+    try {
+      return await task;
+    } finally {
+      inFlight.delete(key);
+    }
   }
 
   function splitForTranslation(text) {
@@ -311,41 +334,22 @@
     lastPreviewKey = key;
     latestPreviewText = clean;
 
-    // Neodesílej další průběžný požadavek, dokud běží předchozí.
-    // Po dokončení se případně zpracuje jen nejnovější zachycený text.
-    if (previewTimer || previewInFlight) return;
-    previewTimer = setTimeout(async () => {
+    // Průběžný náhled používá pouze místní slovník a mezipaměť.
+    // Online službu voláme až pro potvrzený úsek řeči – tím se odstraní
+    // souběžné náhledové požadavky, které vyvolávaly HTTP 429.
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
       previewTimer = null;
       if (!wantListening) return;
-      const snapshot = latestPreviewText;
-      const snapshotKey = normalize(snapshot);
-      if (!snapshotKey || snapshotKey.length < 5) return;
-
+      const snapshotKey = normalize(latestPreviewText);
       const local = phrases[snapshotKey] || cache.get(snapshotKey);
       if (local) {
         $("czech").textContent = local;
         $("hint").textContent = "Okamžitý průběžný překlad.";
-        return;
+      } else {
+        $("hint").textContent = "Anglický dialog zachycen – český překlad se připraví po dokončení úseku.";
       }
-
-      const sequence = ++previewSequence;
-      previewInFlight = true;
-      try {
-        const translated = await requestTranslation(snapshot);
-        if (translated && sequence === previewSequence && wantListening) {
-          $("czech").textContent = translated;
-          $("hint").textContent = "Živý průběžný překlad.";
-        }
-      } catch (_) {
-        // Finální překlad zůstává ve frontě a zkusí přeložit potvrzený úsek.
-      } finally {
-        previewInFlight = false;
-        const newestKey = normalize(latestPreviewText);
-        if (wantListening && newestKey && newestKey !== snapshotKey) {
-          schedulePreview(latestPreviewText);
-        }
-      }
-    }, 800);
+    }, 250);
   }
 
   function showFinal(text) {
