@@ -8,7 +8,7 @@ export async function onRequestPost({request,env}) {
   if(!bytes.length||bytes.length>1000000)return json({error:"Neplatná velikost zvuku."},400);
   try {
     let binary="";for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
-    const result=await env.AI.run("@cf/openai/whisper-large-v3-turbo",{audio:btoa(binary),language:"en",task:"transcribe",vad_filter:true});
+    const result=await env.AI.run("@cf/openai/whisper-large-v3-turbo",{audio:btoa(binary),language:"en",task:"transcribe",vad_filter:false});
     return json({text:typeof result?.text==="string"?result.text.trim():""});
   }catch(e){return json({error:"Workers AI nedokázalo přepsat zvuk."},502);}
 }
