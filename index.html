@@ -317,8 +317,14 @@
     const clean = (text || "").replace(/\s+/g," ").trim();
     if (!normalize(clean)) return;
 
-    // Každý kratší úsek překládáme samostatně a výsledky držíme ve správném pořadí.
-    for (const part of splitForTranslation(clean)) {
+    // Pokud máme překlad pro celou větu/proslov, nikdy jej nerozdělujeme.
+    // Jinak by se vícevětý vstup zobrazil po částech a první věta by zmizela.
+    const wholeKey = normalize(clean);
+    const wholeLocal = phrases[wholeKey] || cache.get(wholeKey) || null;
+    const parts = wholeLocal ? [clean] : splitForTranslation(clean);
+
+    // Kratší úseky překládáme samostatně a výsledky držíme ve správném pořadí.
+    for (const part of parts) {
       const key = normalize(part);
       if (!key) continue;
       const displayId = nextDisplayId++;
