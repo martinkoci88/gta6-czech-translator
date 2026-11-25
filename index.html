@@ -96,6 +96,7 @@
   let previewController = null;
   let previewSequence = 0;
   let lastPreviewKey = "";
+  let latestPreviewText = "";
   let pendingFinalText = "";
   let finalFlushTimer = null;
   // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
@@ -294,28 +295,33 @@
     const clean = (text || "").replace(/\s+/g," ").trim();
     const key = normalize(clean);
     if (!key || key.length < 5 || key === lastPreviewKey) return;
-    if (previewTimer) clearTimeout(previewTimer);
-    // Starší průběžný požadavek už nemá cenu dokončovat.
-    if (previewController) { previewController.abort(); previewController = null; }
     lastPreviewKey = key;
-    const sequence = ++previewSequence;
+    latestPreviewText = clean;
+
+    // Throttle místo debounce: průběžný přepis přichází po malých změnách.
+    // Timer proto při každém novém slově NErestartujeme, jinak se překlad
+    // při plynulé řeči nikdy nespustí.
+    if (previewTimer) return;
     previewTimer = setTimeout(async () => {
       previewTimer = null;
-      if (sequence !== previewSequence || !wantListening) return;
-      const local = phrases[key] || cache.get(key);
+      if (!wantListening) return;
+      const snapshot = latestPreviewText;
+      const snapshotKey = normalize(snapshot);
+      if (!snapshotKey || snapshotKey.length < 5) return;
+      const local = phrases[snapshotKey] || cache.get(snapshotKey);
       if (local) {
         $("czech").textContent = local;
         $("hint").textContent = "Okamžitý průběžný překlad.";
         return;
       }
-      // Překládej i nedokončenou větu. Při nových slovech starý požadavek
-      // zrušíme, takže síť nezahltíme a zastaralý titulek se nezobrazí.
+
+      const sequence = ++previewSequence;
       const controller = new AbortController();
       previewController = controller;
-      const timeout = setTimeout(() => controller.abort(), 1300);
+      const timeout = setTimeout(() => controller.abort(), 2200);
       try {
         const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
-          encodeURIComponent(clean);
+          encodeURIComponent(snapshot);
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error("Preview translation failed");
         const data = await response.json();
@@ -323,16 +329,16 @@
           ? data[0].map(part => part?.[0] || "").join("").trim()
           : "";
         if (!translated || sequence !== previewSequence || !wantListening) return;
-        cache.set(key, translated);
+        cache.set(snapshotKey, translated);
         $("czech").textContent = translated;
-        $("hint").textContent = "Živý průběžný překlad – věta se ještě dokončuje.";
+        $("hint").textContent = "Živý průběžný překlad.";
       } catch (_) {
-        // Konečný překlad se zpracuje běžnou frontou.
+        // Finální překlad zůstává ve frontě a pokusí se o překlad celého úseku.
       } finally {
         clearTimeout(timeout);
         if (previewController === controller) previewController = null;
       }
-    }, 280);
+    }, 450);
   }
 
   function showFinal(text) {
@@ -342,6 +348,7 @@
     if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
     if (previewController) { previewController.abort(); previewController = null; }
     lastPreviewKey = "";
+    latestPreviewText = "";
     const clean = (text || "").replace(/\s+/g," ").trim();
     if (!clean) return;
     const key = normalize(clean);
@@ -473,6 +480,7 @@
     pendingFinalText = "";
     previewSequence++;
     lastPreviewKey = "";
+    latestPreviewText = "";
     lastFinalText = "";
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
