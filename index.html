@@ -272,13 +272,11 @@
     previewTimer = setTimeout(async () => {
       previewTimer = null;
       if (sequence !== previewSequence || !wantListening) return;
-      if (queue.length > 0) return;
       const local = phrases[key] || cache.get(key);
       try {
         const translated = local || await requestTranslation(clean);
         if (sequence !== previewSequence || !wantListening) return;
-        // Pokud mezitím dorazila finální věta, náhled ji nesmí přepsat.
-        if (queue.length > 0) return;
+        // Novější náhled nebo finální věta mají přednost díky kontrole sequence.
         $("czech").textContent = translated;
         $("hint").textContent = local
           ? "Rychlý průběžný překlad z místní paměti."
@@ -286,7 +284,7 @@
       } catch (_) {
         // Náhled je pouze pomocný; finální překlad pokračuje samostatně.
       }
-    }, 420);
+    }, 160);
   }
 
   function showFinal(text) {
