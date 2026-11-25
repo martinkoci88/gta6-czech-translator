@@ -93,6 +93,7 @@
   const completed = new Map();
   let interimTimer = null;
   let previewTimer = null;
+  let previewController = null;
   let previewSequence = 0;
   let lastPreviewKey = "";
   let pendingFinalText = "";
@@ -294,20 +295,44 @@
     const key = normalize(clean);
     if (!key || key.length < 5 || key === lastPreviewKey) return;
     if (previewTimer) clearTimeout(previewTimer);
+    // Starší průběžný požadavek už nemá cenu dokončovat.
+    if (previewController) { previewController.abort(); previewController = null; }
     lastPreviewKey = key;
     const sequence = ++previewSequence;
-    previewTimer = setTimeout(() => {
+    previewTimer = setTimeout(async () => {
       previewTimer = null;
       if (sequence !== previewSequence || !wantListening) return;
-      // Průběžný náhled smí použít jen místní slovník/mezipaměť.
-      // Online požadavky posíláme pouze pro potvrzené úseky řeči,
-      // jinak se desítky měnících se náhledů perou o síť s finálními titulky.
       const local = phrases[key] || cache.get(key);
-      if (!local) return;
-      if (sequence !== previewSequence || !wantListening) return;
-      $("czech").textContent = local;
-      $("hint").textContent = "Rychlý průběžný překlad z místní paměti.";
-    }, 180);
+      if (local) {
+        $("czech").textContent = local;
+        $("hint").textContent = "Okamžitý průběžný překlad.";
+        return;
+      }
+      // Překládej i nedokončenou větu. Při nových slovech starý požadavek
+      // zrušíme, takže síť nezahltíme a zastaralý titulek se nezobrazí.
+      const controller = new AbortController();
+      previewController = controller;
+      const timeout = setTimeout(() => controller.abort(), 1300);
+      try {
+        const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
+          encodeURIComponent(clean);
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error("Preview translation failed");
+        const data = await response.json();
+        const translated = Array.isArray(data?.[0])
+          ? data[0].map(part => part?.[0] || "").join("").trim()
+          : "";
+        if (!translated || sequence !== previewSequence || !wantListening) return;
+        cache.set(key, translated);
+        $("czech").textContent = translated;
+        $("hint").textContent = "Živý průběžný překlad – věta se ještě dokončuje.";
+      } catch (_) {
+        // Konečný překlad se zpracuje běžnou frontou.
+      } finally {
+        clearTimeout(timeout);
+        if (previewController === controller) previewController = null;
+      }
+    }, 280);
   }
 
   function showFinal(text) {
@@ -315,6 +340,7 @@
     // Zneplatni rozpracovaný náhled, aby nepřepsal potvrzený titulek.
     previewSequence++;
     if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    if (previewController) { previewController.abort(); previewController = null; }
     lastPreviewKey = "";
     const clean = (text || "").replace(/\s+/g," ").trim();
     if (!clean) return;
@@ -442,6 +468,7 @@
     completed.clear();
     if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
     if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+    if (previewController) { previewController.abort(); previewController = null; }
     if (finalFlushTimer) { clearTimeout(finalFlushTimer); finalFlushTimer = null; }
     pendingFinalText = "";
     previewSequence++;
