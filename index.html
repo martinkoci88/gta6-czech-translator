@@ -245,7 +245,12 @@
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 7000);
           try {
-            const response = await fetch(provider.url, {\n              method: provider.method || "GET",\n              headers: provider.method === "POST" ? { "Content-Type": "application/json" } : undefined,\n              body: provider.method === "POST" ? JSON.stringify(provider.body) : undefined,\n              signal: controller.signal\n            });
+            const response = await fetch(provider.url, {
+              method: provider.method || "GET",
+              headers: provider.method === "POST" ? { "Content-Type": "application/json" } : undefined,
+              body: provider.method === "POST" ? JSON.stringify(provider.body) : undefined,
+              signal: controller.signal
+            });
             if (response.status === 429) {
               coolDownProvider(provider.name, response);
               throw new Error(provider.name + " HTTP 429 – poskytovatel je dočasně pozastaven");
