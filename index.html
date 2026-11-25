@@ -35,13 +35,32 @@
     .small {font-size:12px;color:var(--muted);margin-top:12px}
     .warning {border:1px solid #65532a;background:#2a2417;color:#f4d99b;padding:13px 14px;border-radius:14px;font-size:13px;margin-top:18px}
     footer {color:#718096;font-size:12px;text-align:center;margin-top:22px}
+  
+    :root{--bg:#100b20;--panel:#21152f;--muted:#d0b6d9;--line:#63375f;--accent:#ff83c6;--green:#69f5c4}
+    body{background:radial-gradient(ellipse at 85% 0%,#a13d6d 0%,transparent 35%),radial-gradient(ellipse at 0% 20%,#663280 0%,transparent 45%),#100b20}
+    header{position:relative;isolation:isolate;overflow:hidden;min-height:150px;padding:22px 16px;align-items:flex-end;border:1px solid #ff9bc955;border-radius:24px;background:linear-gradient(0deg,#170d2d 0%,transparent 75%),linear-gradient(145deg,#7139a6,#e55c9d 52%,#ffb66f)}
+    header:before{content:"";position:absolute;inset:0;z-index:-1;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 180'%3E%3Ccircle cx='290' cy='68' r='46' fill='%23ffd29b' opacity='.8'/%3E%3Cg fill='%23201636'%3E%3Cpath d='M340 180 Q320 90 340 42 L346 42 Q332 110 350 180Z M343 45 Q300 10 276 48 Q310 33 343 45 Q312 53 300 80 Q330 61 343 45 Q365 8 397 29 Q366 29 343 45 Q381 40 400 70 Q368 52 343 45 Q346 12 325 4 Q335 25 343 45Z'/%3E%3Cpath d='M55 180 Q72 106 52 70 L58 67 Q82 115 65 180Z M55 70 Q20 36 0 65 Q27 53 55 70 Q20 76 12 100 Q35 83 55 70 Q70 35 99 48 Q77 53 55 70 Q88 65 111 89 Q81 78 55 70Z'/%3E%3C/g%3E%3C/svg%3E") center/cover no-repeat}
+    .logo{background:linear-gradient(145deg,#ffd08a,#ff79bd 55%,#a78bfa);box-shadow:0 0 24px #ff83c688;flex-shrink:0;color:#24112d}
+    h1{font-size:clamp(21px,5.5vw,32px);font-weight:900;letter-spacing:-.04em;text-shadow:0 2px 12px #170d2d}
+    .sub{color:#fce0f0}
+    .screen{background:linear-gradient(150deg,#291a3aee,#170f27f5);border-color:#e56bb477;box-shadow:0 0 28px #ff65b51a}
+    .tag{color:#ffb2db}.czech{color:#fff5fc;text-shadow:0 0 18px #ff83c633}
+    .manual{background:linear-gradient(135deg,#291a38,#1c142b);border-color:#63375f}
+    #listen,#aiListen,#dubToggle{background:linear-gradient(110deg,#ffb476,#ff7abf 55%,#b58aff)!important;color:#24112d!important;box-shadow:0 4px 18px #ff79bd33}
+    #clear,#test{background:#3c254c!important;color:#fff!important}
+    textarea{background:#130d22;border-color:#70446e}
+    input[type=range],input[type=checkbox]{accent-color:#ff83c6}
+    .dot.on{animation:neonPulse 1.5s infinite alternate}
+    @keyframes neonPulse{to{box-shadow:0 0 18px #69f5c4}}
+    @media(prefers-reduced-motion:reduce){.dot.on{animation:none}}
+
   </style>
 </head>
 <body>
 <main>
   <header>
     <div class="logo">CZ</div>
-    <div><h1>GTA Czech Subtitles</h1><div class="sub">Verze 0.4 · angličtina → čeština</div></div>
+    <div><h1>GTA Czech Translator</h1><div class="sub">VICE CITY EDITION · CZ AUDIO & TITULKY</div></div>
   </header>
   <div class="status"><span class="dot" id="dot"></span><span id="status">Mikrofon zatím není spuštěný</span></div>
   <section class="screen" aria-live="polite">
