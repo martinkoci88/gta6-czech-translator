@@ -104,7 +104,7 @@
   const FINAL_FLUSH_DELAY = 90;
   // Dva pracovníci zpracují krátké úseky souběžně; pořadí titulků hlídá displayId.
   // Tři souběžné požadavky celkem (včetně náhledu) už mohou veřejné API omezovat.
-  const MAX_WORKERS = 2;
+  const MAX_WORKERS = 1;
   const MAX_QUEUE = 12;
 
   const normalize = s => (s || "").toLowerCase()
@@ -122,6 +122,9 @@
   }
 
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  // Veřejné překladové služby chráníme před zahlcením.
+  let nextNetworkRequestAt = 0;
+  let myMemoryCooldownUntil = 0;
 
   async function requestTranslation(text) {
     const key = normalize(text);
@@ -161,20 +164,26 @@
 
       const failures = [];
       for (const provider of providers) {
-        for (let attempt = 0; attempt < 2; attempt++) {
+        if (provider.name === "MyMemory" && Date.now() < myMemoryCooldownUntil) {
+          failures.push("MyMemory je dočasně pozastaven kvůli limitu požadavků");
+          continue;
+        }
+        for (let attempt = 0; attempt < 1; attempt++) {
+          const gap = Math.max(0, nextNetworkRequestAt - Date.now());
+          if (gap) await wait(gap);
+          nextNetworkRequestAt = Date.now() + 1300;
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 5000);
           try {
             const response = await fetch(provider.url, { signal: controller.signal });
             if (response.status === 429) {
               const retryAfter = Number(response.headers.get("Retry-After"));
-              if (attempt === 0) {
-                await wait(Number.isFinite(retryAfter) && retryAfter > 0
-                  ? Math.min(retryAfter * 1000, 5000)
-                  : 2200);
-                continue;
+              if (provider.name === "MyMemory") {
+                myMemoryCooldownUntil = Date.now() +
+                  Math.max(60000, Number.isFinite(retryAfter) && retryAfter > 0
+                    ? retryAfter * 1000 : 60000);
               }
-              throw new Error(provider.name + " HTTP 429 – služba omezuje požadavky");
+              throw new Error(provider.name + " HTTP 429 – služba omezuje požadavky; další pokus odložen");
             }
             if (!response.ok) throw new Error(provider.name + " HTTP " + response.status);
 
@@ -348,8 +357,11 @@
       lastPreviewKey = snapshotKey;
       const sequence = ++previewSequence;
       const local = phrases[snapshotKey] || cache.get(snapshotKey);
+      // Živé náhledy používají jen místní slovník/mezipaměť.
+      // Online API voláme až pro potvrzenou větu, aby nevznikaly duplicitní požadavky.
+      if (!local) return;
       previewInFlight = true;
-      const task = local ? Promise.resolve(local) : requestTranslation(snapshot);
+      const task = Promise.resolve(local);
       task.then(result => {
         // Starší náhled nikdy nesmí přepsat novější nebo finální titulek.
         if (sequence !== previewSequence || !wantListening) return;
