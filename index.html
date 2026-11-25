@@ -148,18 +148,37 @@
   // Veřejné překladové služby chráníme před zahlcením.
   let nextNetworkRequestAt = 0;
   const providerCooldownUntil = new Map();
+  const PROVIDER_COOLDOWN_KEY = "gta-cz-provider-cooldowns-v1";
+  // Omezení poskytovatele uchováme i po obnovení stránky. Jinak by
+  // opakované načítání aplikace znovu posílalo požadavky na zablokované API.
+  try {
+    const savedCooldowns = JSON.parse(localStorage.getItem(PROVIDER_COOLDOWN_KEY) || "{}");
+    for (const [name, until] of Object.entries(savedCooldowns)) {
+      if (typeof until === "number" && until > Date.now()) {
+        providerCooldownUntil.set(name, until);
+      }
+    }
+  } catch (_) {}
   function providerIsCoolingDown(name) {
     return Date.now() < (providerCooldownUntil.get(name) || 0);
   }
   function coolDownProvider(name, response) {
     const header = response?.headers?.get("Retry-After");
     const seconds = Number(header);
+    const retryDate = header && !Number.isFinite(seconds) ? Date.parse(header) : NaN;
+    // Když server neurčí dobu blokace, MyMemory odstavíme na 30 minut.
+    // Respektujeme delší Retry-After, aby aplikace limit zbytečně netestovala.
     const retryMs = Number.isFinite(seconds) && seconds > 0
       ? seconds * 1000
-      : 5 * 60 * 1000;
-    // Po 429 poskytovatele na chvíli vyřadíme, aby další věty
-    // neopakovaly požadavky, o kterých už víme, že budou odmítnuty.
-    providerCooldownUntil.set(name, Date.now() + Math.max(60000, retryMs));
+      : Number.isFinite(retryDate) && retryDate > Date.now()
+        ? retryDate - Date.now()
+        : 30 * 60 * 1000;
+    const until = Date.now() + Math.max(60000, retryMs);
+    providerCooldownUntil.set(name, until);
+    try {
+      localStorage.setItem(PROVIDER_COOLDOWN_KEY,
+        JSON.stringify(Object.fromEntries(providerCooldownUntil.entries())));
+    } catch (_) {}
   }
 
   async function requestTranslation(text) {
