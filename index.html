@@ -19,6 +19,9 @@
     .tag { color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px }
     .english { color:#c3cedc;font-size:18px;min-height:54px;overflow-wrap:anywhere }
     .divider { height:1px;background:var(--line);margin:20px 0 }
+    .subtitle-history { display:grid;gap:8px;margin-bottom:8px;font-size:clamp(17px,4.5vw,24px);line-height:1.3;color:#b8c4d4;overflow-wrap:anywhere }
+    .subtitle-history:empty { display:none }
+    .subtitle-history > div:last-child { color:#e0e7ef }
     .czech { font-size:clamp(25px,6vw,36px);font-weight:750;line-height:1.2;min-height:84px;overflow-wrap:anywhere }
     .hint { color:var(--muted);font-size:13px;margin-top:12px }
     .controls { display:flex;gap:12px;margin:18px 0;flex-wrap:wrap }
@@ -46,6 +49,7 @@
     <div class="english" id="english">Tady se zobrazí rozpoznaná anglická řeč…</div>
     <div class="divider"></div>
     <div class="tag">Český titulek</div>
+    <div id="subtitleHistory" class="subtitle-history"></div>
     <div class="czech" id="czech">České titulky se zobrazí zde.</div>
     <div class="hint" id="hint">Připraveno na živý přepis a průběžný český překlad.</div>
   </section>
@@ -367,6 +371,17 @@
     runQueue();
   }
 
+  const subtitleHistory = [];
+  function renderSubtitleHistory() {
+    $("subtitleHistory").replaceChildren(...subtitleHistory.slice(-2).map(text => { const el=document.createElement("div"); el.textContent=text; return el; }));
+  }
+  let lastConfirmedSubtitle = "";
+  function showConfirmedSubtitle(text) {
+    if(lastConfirmedSubtitle && lastConfirmedSubtitle !== text) { subtitleHistory.push(lastConfirmedSubtitle); if(subtitleHistory.length>2)subtitleHistory.shift(); }
+    lastConfirmedSubtitle=text;
+    renderSubtitleHistory();
+    $("czech").textContent=text;
+  }
   function showCompletedInOrder() {
     while (completed.has(nextDisplayInOrder)) {
       const result = completed.get(nextDisplayInOrder);
@@ -376,13 +391,13 @@
       if (result.generation !== clearGeneration || result.skipped) continue;
       $("english").textContent = result.text;
       if (result.error) {
-        $("czech").textContent = "Překlad se nepodařilo načíst.";
+        if(!lastConfirmedSubtitle) $("czech").textContent = "Překlad se nepodařilo načíst.";
         $("hint").textContent = result.error?.message ||
           (result.error?.name === "AbortError"
             ? "Překlad trval příliš dlouho. Poslech pokračuje."
             : "Zkontroluj internetové připojení. Poslech pokračuje.");
       } else {
-        $("czech").textContent = result.translation;
+        showConfirmedSubtitle(result.translation);
         $("hint").textContent = result.local
           ? "Rychlý překlad z místního slovníku nebo mezipaměti."
           : "Automatický online překlad.";
@@ -747,6 +762,7 @@
     lastFinalText = "";
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
+    subtitleHistory.length=0; lastConfirmedSubtitle=""; renderSubtitleHistory();
     $("czech").textContent = "České titulky se zobrazí zde.";
     $("hint").textContent = "Připraveno k dalšímu testu.";
     $("manualText").value = "";
