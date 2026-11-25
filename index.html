@@ -248,9 +248,10 @@
       $("english").textContent = result.text;
       if (result.error) {
         $("czech").textContent = "Překlad se nepodařilo načíst.";
-        $("hint").textContent = result.error.name === "AbortError"
-          ? "Překlad trval příliš dlouho. Poslech pokračuje."
-          : "Zkontroluj internetové připojení. Poslech pokračuje.";
+        $("hint").textContent = result.error?.message ||
+          (result.error?.name === "AbortError"
+            ? "Překlad trval příliš dlouho. Poslech pokračuje."
+            : "Zkontroluj internetové připojení. Poslech pokračuje.");
       } else {
         $("czech").textContent = result.translation;
         $("hint").textContent = result.local
