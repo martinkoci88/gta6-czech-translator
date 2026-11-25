@@ -127,7 +127,7 @@
   const FINAL_FLUSH_DELAY = 90;
   // Dva pracovníci zpracují krátké úseky souběžně; pořadí titulků hlídá displayId.
   // Tři souběžné požadavky celkem (včetně náhledu) už mohou veřejné API omezovat.
-  const MAX_WORKERS = 1;
+  const MAX_WORKERS = 2;
   const MAX_QUEUE = 12;
 
   const normalize = s => (s || "").toLowerCase()
@@ -241,7 +241,7 @@
         for (let attempt = 0; attempt < 1; attempt++) {
           const gap = Math.max(0, nextNetworkRequestAt - Date.now());
           if (gap) await wait(gap);
-          nextNetworkRequestAt = Date.now() + 1000;
+          nextNetworkRequestAt = Date.now() + 350;
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 7000);
           try {
@@ -408,18 +408,15 @@
     }
   }
 
-  // Když řeč na chvíli zpomalí, ukážeme předběžný překlad ještě před
-  // definitivním ukončením věty. Pozdější finální překlad ho bezpečně nahradí.
-  // Průběžný překlad: po krátké pauze přeloží aktuální anglický náhled.
-  // Debounce a kontrola sequence brání zahlcení a zastaralým titulkům.
+  // Průběžný překlad: po krátké pauze odešleme stabilní část řeči online.
+  // Nečekáme tedy na konec celé věty. Starší odpověď nesmí přepsat novější titulek.
+  // Současně běží jen jeden náhled; cache a inFlight brání duplicitním požadavkům.
   function schedulePreview(text) {
-    const clean = (text || "").replace(/\s+/g," ").trim();
+    const clean = (text || "").replace(/\\s+/g," ").trim();
     const key = normalize(clean);
     if (!key || key.length < 8) return;
     latestPreviewText = clean;
 
-    // Krátký debounce: překládáme stabilnější část živého přepisu,
-    // ne každou změnu jednotlivého slova. Běží vždy jen jeden náhled.
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       previewTimer = null;
@@ -432,28 +429,27 @@
       lastPreviewKey = snapshotKey;
       const sequence = ++previewSequence;
       const local = phrases[snapshotKey] || cache.get(snapshotKey);
-      // Živé náhledy používají jen místní slovník/mezipaměť.
-      // Online API voláme až pro potvrzenou větu, aby nevznikaly duplicitní požadavky.
-      if (!local) return;
       previewInFlight = true;
-      const task = Promise.resolve(local);
-      task.then(result => {
-        // Starší náhled nikdy nesmí přepsat novější nebo finální titulek.
-        if (sequence !== previewSequence || !wantListening) return;
-        $("czech").textContent = result;
-        $("hint").textContent = local
-          ? "Okamžitý průběžný překlad."
-          : "Průběžný český překlad – po dokončení věty se ještě upřesní.";
-      }).catch(() => {
-        // Chyba průběžného náhledu neblokuje finální překlad.
-      }).finally(() => {
-        previewInFlight = false;
-        const newestKey = normalize(latestPreviewText);
-        if (wantListening && newestKey && newestKey !== lastPreviewKey) {
-          schedulePreview(latestPreviewText);
-        }
-      });
-    }, 480);
+
+      requestTranslation(snapshot)
+        .then(result => {
+          if (sequence !== previewSequence || !wantListening) return;
+          $("czech").textContent = result;
+          $("hint").textContent = local
+            ? "Okamžitý překlad z místního slovníku nebo mezipaměti."
+            : "Průběžný český překlad – po dokončení věty se ještě upřesní.";
+        })
+        .catch(() => {
+          // Chyba náhledu neblokuje finální překlad.
+        })
+        .finally(() => {
+          previewInFlight = false;
+          const newestKey = normalize(latestPreviewText);
+          if (wantListening && newestKey && newestKey !== lastPreviewKey) {
+            schedulePreview(latestPreviewText);
+          }
+        });
+    }, 650);
   }
 
   function showFinal(text) {
