@@ -1,21 +1,19 @@
 /**
- * GTA Czech Subtitles – Cloudflare Worker translation proxy
+ * GTA Czech Subtitles – secure DeepL translation proxy for Cloudflare Workers.
  *
- * Deploy as a Cloudflare Worker. Add DEEPL_AUTH_KEY as a secret:
- *   npx wrangler secret put DEEPL_AUTH_KEY
+ * Store the API key as a Worker secret named DEEPL_AUTH_KEY.
+ * Free legacy keys ending in :fx use api-free.deepl.com.
+ * New Developer / paid keys use api.deepl.com.
  *
- * The browser calls POST /translate with { "text": "..." }.
- * The API key stays on the server and is never exposed to the iPhone/browser.
+ * Browser request: POST /translate { "text": "..." }
  */
-const ALLOWED_ORIGINS = new Set([
-  "https://martinkoci88.github.io",
-  "https://martinkoci88.github.io"
-]);
+const ALLOWED_ORIGINS = new Set(["https://martinkoci88.github.io"]);
 
 function corsHeaders(origin) {
-  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : "https://martinkoci88.github.io";
   return {
-    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.has(origin)
+      ? origin
+      : "https://martinkoci88.github.io",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Vary": "Origin"
@@ -40,10 +38,7 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: {
-          ...corsHeaders(origin),
-          "Access-Control-Max-Age": "86400"
-        }
+        headers: { ...corsHeaders(origin), "Access-Control-Max-Age": "86400" }
       });
     }
 
@@ -51,11 +46,9 @@ export default {
     if (request.method !== "POST" || url.pathname !== "/translate") {
       return json({ error: "Použij POST /translate." }, 404, origin);
     }
-
     if (origin && !ALLOWED_ORIGINS.has(origin)) {
       return json({ error: "Nepovolený původ požadavku." }, 403, origin);
     }
-
     if (!env.DEEPL_AUTH_KEY) {
       return json({ error: "Na serveru chybí DEEPL_AUTH_KEY." }, 503, origin);
     }
@@ -72,8 +65,13 @@ export default {
       return json({ error: "Text musí mít 1 až 500 znaků." }, 400, origin);
     }
 
+    // Select the correct DeepL host from the key type.
+    const host = env.DEEPL_AUTH_KEY.endsWith(":fx")
+      ? "https://api-free.deepl.com"
+      : "https://api.deepl.com";
+
     try {
-      const response = await fetch("https://api-free.deepl.com/v2/translate", {
+      const response = await fetch(host + "/v2/translate", {
         method: "POST",
         headers: {
           "Authorization": `DeepL-Auth-Key ${env.DEEPL_AUTH_KEY}`,
@@ -93,7 +91,7 @@ export default {
           error: "DeepL vrátil chybu.",
           provider_status: response.status,
           detail: detail.slice(0, 300)
-        }, response.status === 429 ? 429 : 502, origin);
+        }, response.status === 429 || response.status === 456 ? response.status : 502, origin);
       }
 
       const data = await response.json();
