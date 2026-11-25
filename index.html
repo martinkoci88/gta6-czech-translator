@@ -124,7 +124,7 @@
   let pendingFinalText = "";
   let finalFlushTimer = null;
   // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
-  const FINAL_FLUSH_DELAY = 90;
+  const FINAL_FLUSH_DELAY = 70;
   // Dva pracovníci zpracují krátké úseky souběžně; pořadí titulků hlídá displayId.
   // Tři souběžné požadavky celkem (včetně náhledu) už mohou veřejné API omezovat.
   const MAX_WORKERS = 2;
@@ -241,9 +241,9 @@
         for (let attempt = 0; attempt < 1; attempt++) {
           const gap = Math.max(0, nextNetworkRequestAt - Date.now());
           if (gap) await wait(gap);
-          nextNetworkRequestAt = Date.now() + 350;
+          nextNetworkRequestAt = Date.now() + 180;
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 7000);
+          const timeout = setTimeout(() => controller.abort(), 4500);
           try {
             const response = await fetch(provider.url, {
               method: provider.method || "GET",
@@ -412,7 +412,7 @@
   // Nečekáme tedy na konec celé věty. Starší odpověď nesmí přepsat novější titulek.
   // Současně běží jen jeden náhled; cache a inFlight brání duplicitním požadavkům.
   function schedulePreview(text) {
-    const clean = (text || "").replace(/\\s+/g," ").trim();
+    const clean = (text || "").replace(/\s+/g," ").trim();
     const key = normalize(clean);
     if (!key || key.length < 8) return;
     latestPreviewText = clean;
@@ -449,7 +449,7 @@
             schedulePreview(latestPreviewText);
           }
         });
-    }, 650);
+    }, 350);
   }
 
   function showFinal(text) {
