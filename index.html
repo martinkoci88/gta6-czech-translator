@@ -192,6 +192,16 @@
     const task = (async () => {
       const providers = [
         {
+          name: "DeepL",
+          url: "/api/translate",
+          method: "POST",
+          body: { text },
+          parse: async response => {
+            const data = await response.json();
+            return (data?.translatedText || "").trim();
+          }
+        },
+        {
           name: "Google",
           url: "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
             encodeURIComponent(text),
@@ -243,7 +253,7 @@
           if (gap) await wait(gap);
           nextNetworkRequestAt = Date.now() + 180;
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 4500);
+          const timeout = setTimeout(() => controller.abort(), provider.name === "DeepL" ? 10000 : 4500);
           try {
             const response = await fetch(provider.url, {
               method: provider.method || "GET",
@@ -255,7 +265,10 @@
               coolDownProvider(provider.name, response);
               throw new Error(provider.name + " HTTP 429 – poskytovatel je dočasně pozastaven");
             }
-            if (!response.ok) throw new Error(provider.name + " HTTP " + response.status);
+            if (!response.ok) {
+              const detail = provider.name === "DeepL" ? await response.json().catch(() => null) : null;
+              throw new Error(detail?.error || provider.name + " HTTP " + response.status);
+            }
 
             const result = await provider.parse(response);
             if (!result || normalize(result) === key) {
