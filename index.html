@@ -97,13 +97,14 @@
   let previewSequence = 0;
   let lastPreviewKey = "";
   let latestPreviewText = "";
+  let previewInFlight = false;
   let pendingFinalText = "";
   let finalFlushTimer = null;
   // Krátké pauzy uvnitř promluvy spojíme do jednoho překladu.
   const FINAL_FLUSH_DELAY = 160;
   // Tři souběžné překlady pomohou při rychlém dialogu; pořadí titulků zůstává zachované.
-  const MAX_WORKERS = 4;
-  const MAX_QUEUE = 8;
+  const MAX_WORKERS = 2;
+  const MAX_QUEUE = 6;
 
   const normalize = s => (s || "").toLowerCase()
     .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
@@ -310,16 +311,16 @@
     lastPreviewKey = key;
     latestPreviewText = clean;
 
-    // Throttle místo debounce: průběžný přepis přichází po malých změnách.
-    // Timer proto při každém novém slově NErestartujeme, jinak se překlad
-    // při plynulé řeči nikdy nespustí.
-    if (previewTimer) return;
+    // Neodesílej další průběžný požadavek, dokud běží předchozí.
+    // Po dokončení se případně zpracuje jen nejnovější zachycený text.
+    if (previewTimer || previewInFlight) return;
     previewTimer = setTimeout(async () => {
       previewTimer = null;
       if (!wantListening) return;
       const snapshot = latestPreviewText;
       const snapshotKey = normalize(snapshot);
       if (!snapshotKey || snapshotKey.length < 5) return;
+
       const local = phrases[snapshotKey] || cache.get(snapshotKey);
       if (local) {
         $("czech").textContent = local;
@@ -328,17 +329,23 @@
       }
 
       const sequence = ++previewSequence;
+      previewInFlight = true;
       try {
         const translated = await requestTranslation(snapshot);
-        if (!translated || sequence !== previewSequence || !wantListening) return;
-        $("czech").textContent = translated;
-        $("hint").textContent = "Živý průběžný překlad.";
+        if (translated && sequence === previewSequence && wantListening) {
+          $("czech").textContent = translated;
+          $("hint").textContent = "Živý průběžný překlad.";
+        }
       } catch (_) {
-        // Finální překlad zůstává ve frontě a pokusí se o překlad celého úseku.
+        // Finální překlad zůstává ve frontě a zkusí přeložit potvrzený úsek.
       } finally {
-        // Náhled nesmí sahat na časovače finálního překladu.
+        previewInFlight = false;
+        const newestKey = normalize(latestPreviewText);
+        if (wantListening && newestKey && newestKey !== snapshotKey) {
+          schedulePreview(latestPreviewText);
+        }
       }
-    }, 450);
+    }, 800);
   }
 
   function showFinal(text) {
