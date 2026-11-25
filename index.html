@@ -38,7 +38,7 @@
 <main>
   <header>
     <div class="logo">CZ</div>
-    <div><h1>GTA Czech Subtitles</h1><div class="sub">Verze 0.3 · angličtina → čeština</div></div>
+    <div><h1>GTA Czech Subtitles</h1><div class="sub">Verze 0.4 · angličtina → čeština</div></div>
   </header>
   <div class="status"><span class="dot" id="dot"></span><span id="status">Mikrofon zatím není spuštěný</span></div>
   <section class="screen" aria-live="polite">
@@ -53,6 +53,7 @@
     <button id="listen">🎙 Spustit poslech</button>
     <button id="clear">Vymazat</button>
   </div>
+  <section class="manual"><button id="aiListen" style="background:#26364b;color:white;width:100%">🎙 AI Whisper – spustit</button><div class="small">Experimentální režim: odesílá zvuk mikrofonu do Cloudflare po 4 sekundách. Může mít vyšší zpoždění a spotřebovává AI kvótu. Nejde o izolaci hlasu.</div></section>
   <section class="manual">
     <label style="display:flex;align-items:center;gap:10px;color:#f4f7fb"><input type="checkbox" id="voiceFocus"> Voice Focus – experimentální zvukový filtr</label>
     <div class="small" id="focusStatus">Zapni před spuštěním poslechu. Podpora závisí na prohlížeči; nejde o AI izolaci hlasu.</div>
@@ -653,6 +654,55 @@
     $("listen").textContent = "Mikrofon není podporován";
     setStatus("Tento prohlížeč nepodporuje rozpoznávání řeči",false);
   }
+
+
+  // Optional cloud transcription; original browser recognition stays available.
+  const aiButton = $("aiListen");
+  let aiSession = null;
+  function stopAI(message="AI poslech vypnutý") {
+    const s=aiSession; aiSession=null;
+    if(s){ clearTimeout(s.timer); s.abort?.abort(); s.stream?.getTracks().forEach(t=>t.stop()); if(s.rec?.state==="recording") s.rec.stop(); }
+    aiButton.textContent="🎙 AI Whisper – spustit";
+    $("listen").disabled=!recognition;
+    setStatus(message,false);
+  }
+  aiButton.addEventListener("click",async()=>{
+    if(aiSession){stopAI();return;}
+    if(wantListening||starting){setStatus("Nejprve zastav původní poslech.");return;}
+    if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){setStatus("AI mikrofon není podporován.");return;}
+    const s={busy:false}; aiSession=s; $("listen").disabled=true;
+    aiButton.textContent="■ Zastavit AI poslech";
+    try {
+      s.stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+      if(aiSession!==s){s.stream.getTracks().forEach(t=>t.stop());return;}
+      const record=()=>{
+        if(aiSession!==s)return;
+        const rec=new MediaRecorder(s.stream); s.rec=rec; const chunks=[];
+        rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+        rec.onerror=()=>{if(aiSession===s)stopAI("Chyba nahrávání.");};
+        rec.onstop=async()=>{
+          if(aiSession!==s)return;
+          const blob=new Blob(chunks,{type:rec.mimeType});
+          record();
+          if(s.busy||!blob.size)return;
+          s.busy=true; const generation=clearGeneration;
+          const controller=new AbortController();s.abort=controller;
+          const timeout=setTimeout(()=>controller.abort(),20000);
+          try{
+            const response=await fetch("/api/transcribe",{method:"POST",body:blob,signal:controller.signal});
+            const data=await response.json();
+            if(!response.ok)throw new Error(data.error||"HTTP "+response.status);
+            if(aiSession===s&&generation===clearGeneration&&data.text)showFinal(data.text);
+            if(aiSession===s)setStatus("AI Whisper poslouchá…",true);
+          }catch(e){if(aiSession===s)stopAI("AI: "+e.message);}
+          finally{clearTimeout(timeout);s.busy=false;}
+        };
+        rec.start();s.timer=setTimeout(()=>{if(rec.state==="recording")rec.stop();},4000);
+      };
+      record();setStatus("AI Whisper poslouchá…",true);
+    }catch(e){if(aiSession===s)stopAI("AI mikrofon: "+e.message);}
+  });
+  window.addEventListener("pagehide",()=>{if(aiSession)stopAI();});
 
   $("test").addEventListener("click",() => {
     const value = $("manualText").value.trim();
