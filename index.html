@@ -67,6 +67,8 @@
   const $ = id => document.getElementById(id);
   const phrases = {
     "have a good day":"Měj hezký den.","have a nice day":"Měj hezký den.","good day":"Hezký den.",
+    "that's not fair i also want to learn something":"To není fér. I já se chci něco naučit.",
+    "that's not fair":"To není fér.","i also want to learn something":"I já se chci něco naučit.",
     "what are you doing":"Co to děláš?","come on":"No tak, dělej.","let's go":"Jdeme na to.",
     "get down":"K zemi!","watch out":"Pozor!","are you crazy":"Zbláznil ses?",
     "i need help":"Potřebuju pomoct.","thank you":"Děkuju.","where are you":"Kde jsi?",
@@ -84,7 +86,28 @@
   let starting = false;
   let clearGeneration = 0;
   let lastFinalText = "";
+  // Překlady uchováváme i po obnovení stránky, aby se stejné věty
+  // zbytečně neposílaly znovu do veřejných API.
+  const CACHE_STORAGE_KEY = "gta-cz-translation-cache-v2";
   const cache = new Map();
+  try {
+    const saved = JSON.parse(localStorage.getItem(CACHE_STORAGE_KEY) || "[]");
+    if (Array.isArray(saved)) {
+      for (const entry of saved.slice(-500)) {
+        if (Array.isArray(entry) && entry.length === 2 &&
+            typeof entry[0] === "string" && typeof entry[1] === "string") {
+          cache.set(entry[0], entry[1]);
+        }
+      }
+    }
+  } catch (_) {}
+  function saveCachedTranslation(key, value) {
+    cache.set(key, value);
+    while (cache.size > 500) cache.delete(cache.keys().next().value);
+    try {
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify([...cache.entries()]));
+    } catch (_) {}
+  }
   const inFlight = new Map();
   const queue = [];
   let activeWorkers = 0;
@@ -124,7 +147,20 @@
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   // Veřejné překladové služby chráníme před zahlcením.
   let nextNetworkRequestAt = 0;
-  let myMemoryCooldownUntil = 0;
+  const providerCooldownUntil = new Map();
+  function providerIsCoolingDown(name) {
+    return Date.now() < (providerCooldownUntil.get(name) || 0);
+  }
+  function coolDownProvider(name, response) {
+    const header = response?.headers?.get("Retry-After");
+    const seconds = Number(header);
+    const retryMs = Number.isFinite(seconds) && seconds > 0
+      ? seconds * 1000
+      : 5 * 60 * 1000;
+    // Po 429 poskytovatele na chvíli vyřadíme, aby další věty
+    // neopakovaly požadavky, o kterých už víme, že budou odmítnuty.
+    providerCooldownUntil.set(name, Date.now() + Math.max(60000, retryMs));
+  }
 
   async function requestTranslation(text) {
     const key = normalize(text);
@@ -164,26 +200,21 @@
 
       const failures = [];
       for (const provider of providers) {
-        if (provider.name === "MyMemory" && Date.now() < myMemoryCooldownUntil) {
-          failures.push("MyMemory je dočasně pozastaven kvůli limitu požadavků");
+        if (providerIsCoolingDown(provider.name)) {
+          failures.push(provider.name + " je dočasně pozastaven kvůli limitu požadavků");
           continue;
         }
         for (let attempt = 0; attempt < 1; attempt++) {
           const gap = Math.max(0, nextNetworkRequestAt - Date.now());
           if (gap) await wait(gap);
-          nextNetworkRequestAt = Date.now() + 1300;
+          nextNetworkRequestAt = Date.now() + 1000;
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 5000);
           try {
             const response = await fetch(provider.url, { signal: controller.signal });
             if (response.status === 429) {
-              const retryAfter = Number(response.headers.get("Retry-After"));
-              if (provider.name === "MyMemory") {
-                myMemoryCooldownUntil = Date.now() +
-                  Math.max(60000, Number.isFinite(retryAfter) && retryAfter > 0
-                    ? retryAfter * 1000 : 60000);
-              }
-              throw new Error(provider.name + " HTTP 429 – služba omezuje požadavky; další pokus odložen");
+              coolDownProvider(provider.name, response);
+              throw new Error(provider.name + " HTTP 429 – poskytovatel je dočasně pozastaven");
             }
             if (!response.ok) throw new Error(provider.name + " HTTP " + response.status);
 
@@ -192,8 +223,7 @@
               throw new Error(provider.name + " nevrátil český překlad");
             }
 
-            cache.set(key, result);
-            if (cache.size > 600) cache.delete(cache.keys().next().value);
+            saveCachedTranslation(key, result);
             return result;
           } catch (error) {
             failures.push(error?.message || String(error));
@@ -228,10 +258,10 @@
     const chunks = [];
     for (const sentence of sentences) {
       const words = sentence.split(/\s+/);
-      while (words.length > 13) {
-        let cut = 13;
-        // Pokud je poblíž přirozené spojení, ukončíme úsek tam.
-        for (let i = 13; i >= 9; i--) {
+      while (words.length > 22) {
+        let cut = 22;
+        // Delší věty rozdělíme až tehdy, když je to opravdu potřeba.
+        for (let i = 22; i >= 16; i--) {
           if (/^(and|but|because|so|then|when|if|while|although)$/i.test(words[i] || "")) {
             cut = i;
             break;
