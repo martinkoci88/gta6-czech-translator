@@ -329,7 +329,7 @@
   // Průběžný překlad: po krátké pauze přeloží aktuální anglický náhled.
   // Debounce a kontrola sequence brání zahlcení a zastaralým titulkům.
   function schedulePreview(text) {
-    const clean = (text || "").replace(/\\s+/g," ").trim();
+    const clean = (text || "").replace(/\s+/g," ").trim();
     const key = normalize(clean);
     if (!key || key.length < 8) return;
     latestPreviewText = clean;
