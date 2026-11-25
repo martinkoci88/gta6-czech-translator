@@ -38,7 +38,7 @@
 <main>
   <header>
     <div class="logo">CZ</div>
-    <div><h1>GTA Czech Subtitles</h1><div class="sub">První prototyp · angličtina → čeština</div></div>
+    <div><h1>GTA Czech Subtitles</h1><div class="sub">Verze 0.2 · angličtina → čeština</div></div>
   </header>
   <div class="status"><span class="dot" id="dot"></span><span id="status">Mikrofon zatím není spuštěný</span></div>
   <section class="screen" aria-live="polite">
@@ -53,6 +53,10 @@
     <button id="listen">🎙 Spustit poslech</button>
     <button id="clear">Vymazat</button>
   </div>
+  <section class="manual">
+    <label style="display:flex;align-items:center;gap:10px;color:#f4f7fb"><input type="checkbox" id="noiseMode" checked> Herní režim – odolnější poslech</label>
+    <div class="small">Při výpadku se poslech rychle obnoví a zachová poslední dostatečně dlouhý rozpoznaný úsek. Nejde o izolaci hlasu ani odstranění střelby.</div>
+  </section>
   <section class="manual">
     <label for="manualText">Test bez mikrofonu – napiš anglickou větu</label>
     <textarea id="manualText" placeholder="Např. What are you doing?"></textarea>
@@ -490,6 +494,12 @@
     if (text) showFinal(text);
   }
 
+  let lastInterim = "";
+  let lastInterimAt = 0;
+  let restartTimer = null;
+  let emptyRestarts = 0;
+  const noiseMode = () => $("noiseMode").checked;
+  function resetInterim() { lastInterim = ""; lastInterimAt = 0; }
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
@@ -506,6 +516,7 @@
     };
 
     recognition.onresult = event => {
+      emptyRestarts = 0;
       const finalParts = [];
       const interimParts = [];
       for (let i=event.resultIndex;i<event.results.length;i++) {
@@ -520,6 +531,7 @@
       // průběžnou část. Pro náhled spojíme právě potvrzený úsek s tím,
       // co rozpoznávání právě slyší – jinak se konec věty ztrácel.
       if (finalParts.length) {
+        resetInterim();
         pendingFinalText = [pendingFinalText, ...finalParts]
           .filter(Boolean).join(" ").replace(/\s+/g," ").trim();
         if (finalFlushTimer) clearTimeout(finalFlushTimer);
@@ -527,6 +539,8 @@
       }
 
       if (interimParts.length) {
+        lastInterim = interimParts.join(" ").trim();
+        lastInterimAt = Date.now();
         const preview = [pendingFinalText, ...interimParts]
           .filter(Boolean).join(" ").replace(/\s+/g," ").trim();
         // Během mluvení zobrazujeme živý anglický přepis, ale neposíláme
@@ -543,7 +557,9 @@
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         wantListening = false;
         setStatus("Povol mikrofon v nastavení prohlížeče",false);
-      } else if (event.error !== "no-speech" && event.error !== "aborted") {
+      } else if (event.error === "no-speech" && wantListening) {
+        setStatus("Řeč nezachycena – obnovuji poslech…",true);
+      } else if (event.error !== "aborted") {
         setStatus("Chyba mikrofonu: " + event.error,false);
       }
     };
@@ -551,14 +567,20 @@
     recognition.onend = () => {
       starting = false;
       // Při zastavení nebo automatickém restartu neztrať poslední rozpoznaná slova.
+      if (wantListening && noiseMode() && lastInterim && Date.now() - lastInterimAt < 1800 && lastInterim.split(/\s+/).length >= 3) {
+        pendingFinalText = [pendingFinalText, lastInterim].filter(Boolean).join(" ");
+      }
+      resetInterim();
       if (pendingFinalText) flushFinalText();
       if (wantListening) {
         setStatus("Obnovuji poslech…",true);
-        setTimeout(() => {
+        clearTimeout(restartTimer);
+        const delay = noiseMode() ? Math.min(2000, 150 + emptyRestarts++ * 150) : 350;
+        restartTimer = setTimeout(() => {
           if (!wantListening || starting) return;
           try { starting = true; recognition.start(); }
-          catch(e) { starting = false; }
-        },350);
+          catch(e) { starting = false; wantListening = false; $("listen").textContent = "🎙 Spustit poslech"; setStatus("Poslech se nepodařilo obnovit – spusť jej znovu.",false); }
+        },delay);
       } else {
         $("listen").textContent = "🎙 Spustit poslech";
         setStatus("Poslech je vypnutý",false);
@@ -568,12 +590,16 @@
     $("listen").addEventListener("click",() => {
       if (wantListening) {
         wantListening = false;
+        clearTimeout(restartTimer);
+        resetInterim();
         try { recognition.stop(); } catch(e) {}
         $("listen").textContent = "🎙 Spustit poslech";
         setStatus("Zastavuji poslech…",false);
       } else if (!starting) {
         try {
           starting = true;
+          emptyRestarts = 0;
+          resetInterim();
           recognition.start();
           setStatus("Spouštím mikrofon…",true);
         } catch(e) {
@@ -594,6 +620,7 @@
   });
 
   $("clear").addEventListener("click",() => {
+    resetInterim();
     clearGeneration++;
     nextDisplayId = 1;
     nextDisplayInOrder = 1;
