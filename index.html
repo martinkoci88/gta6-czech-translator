@@ -53,6 +53,7 @@
     <div class="czech" id="czech">České titulky se zobrazí zde.</div>
     <div class="hint" id="hint">Připraveno na živý přepis a průběžný český překlad.</div>
   </section>
+  <section class="manual"><button id="dubToggle" style="width:100%">🔊 Zapnout český dabing</button><div class="small" id="dubStatus">Experimentální hlas telefonu. Pro první test používej sluchátka, aby mikrofon nesnímal dabing.</div></section>
   <div class="controls">
     <button id="listen">🎙 Spustit poslech</button>
     <button id="clear">Vymazat</button>
@@ -376,7 +377,24 @@
     $("subtitleHistory").replaceChildren(...subtitleHistory.slice(-2).map(text => { const el=document.createElement("div"); el.textContent=text; return el; }));
   }
   let lastConfirmedSubtitle = "";
+  let dubEnabled=false;
+  const synth=window.speechSynthesis;
+  $("dubToggle").addEventListener("click",()=>{
+    if(!synth||!window.SpeechSynthesisUtterance){$("dubStatus").textContent="Tento prohlížeč nepodporuje hlasový výstup.";return;}
+    dubEnabled=!dubEnabled;
+    $("dubToggle").textContent=dubEnabled?"■ Vypnout český dabing":"🔊 Zapnout český dabing";
+    if(!dubEnabled){synth.cancel();return;}
+    const u=new SpeechSynthesisUtterance("Český dabing zapnut.");u.lang="cs-CZ";const voice=synth.getVoices().find(v=>v.lang.toLowerCase().startsWith("cs"));if(voice)u.voice=voice;synth.speak(u);
+  });
+  function speakDub(text){
+    if(!dubEnabled||!synth||!text)return;
+    const u=new SpeechSynthesisUtterance(text);u.lang="cs-CZ";u.rate=1.1;
+    const voice=synth.getVoices().find(v=>v.lang.toLowerCase().startsWith("cs"));if(voice)u.voice=voice;
+    u.onerror=()=>{$("dubStatus").textContent="Hlas se nepodařilo přehrát. Zkus dabing vypnout a zapnout.";};
+    synth.speak(u);
+  }
   function showConfirmedSubtitle(text) {
+    if(text!==lastConfirmedSubtitle)speakDub(text);
     if(lastConfirmedSubtitle && lastConfirmedSubtitle !== text) { subtitleHistory.push(lastConfirmedSubtitle); if(subtitleHistory.length>2)subtitleHistory.shift(); }
     lastConfirmedSubtitle=text;
     renderSubtitleHistory();
@@ -762,6 +780,7 @@
     lastFinalText = "";
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
+    if(dubEnabled)synth?.cancel();
     subtitleHistory.length=0; lastConfirmedSubtitle=""; renderSubtitleHistory();
     $("czech").textContent = "České titulky se zobrazí zde.";
     $("hint").textContent = "Připraveno k dalšímu testu.";
