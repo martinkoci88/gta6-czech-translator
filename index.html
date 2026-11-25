@@ -38,7 +38,7 @@
 <main>
   <header>
     <div class="logo">CZ</div>
-    <div><h1>GTA Czech Subtitles</h1><div class="sub">Verze 0.2 · angličtina → čeština</div></div>
+    <div><h1>GTA Czech Subtitles</h1><div class="sub">Verze 0.3 · angličtina → čeština</div></div>
   </header>
   <div class="status"><span class="dot" id="dot"></span><span id="status">Mikrofon zatím není spuštěný</span></div>
   <section class="screen" aria-live="polite">
@@ -54,6 +54,8 @@
     <button id="clear">Vymazat</button>
   </div>
   <section class="manual">
+    <label style="display:flex;align-items:center;gap:10px;color:#f4f7fb"><input type="checkbox" id="voiceFocus"> Voice Focus – experimentální zvukový filtr</label>
+    <div class="small" id="focusStatus">Zapni před spuštěním poslechu. Podpora závisí na prohlížeči; nejde o AI izolaci hlasu.</div>
     <label style="display:flex;align-items:center;gap:10px;color:#f4f7fb"><input type="checkbox" id="noiseMode" checked> Herní režim – odolnější poslech</label>
     <div class="small">Při výpadku se poslech rychle obnoví a zachová poslední dostatečně dlouhý rozpoznaný úsek. Nejde o izolaci hlasu ani odstranění střelby.</div>
   </section>
@@ -500,6 +502,38 @@
   let emptyRestarts = 0;
   const noiseMode = () => $("noiseMode").checked;
   function resetInterim() { lastInterim = ""; lastInterimAt = 0; }
+  let focusContext = null, focusStream = null, focusTrack = null;
+  function releaseFocus() {
+    focusTrack?.stop(); focusTrack = null;
+    focusStream?.getTracks().forEach(t => t.stop()); focusStream = null;
+    if (focusContext) { focusContext.close().catch(() => {}); focusContext = null; }
+  }
+  async function prepareFocus() {
+    if (!$("voiceFocus").checked) return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || recognition.start.length < 1) {
+      $("focusStatus").textContent = "Filtrovaný vstup není v tomto prohlížeči potvrzen jako podporovaný. Používám původní poslech.";
+      return;
+    }
+    try {
+      focusContext = new AudioContext();
+      await focusContext.resume();
+      focusStream = await navigator.mediaDevices.getUserMedia({audio:{noiseSuppression:true,echoCancellation:true,autoGainControl:false,channelCount:1}});
+      const source = focusContext.createMediaStreamSource(focusStream);
+      const high = focusContext.createBiquadFilter(); high.type = "highpass"; high.frequency.value = 160;
+      const low = focusContext.createBiquadFilter(); low.type = "lowpass"; low.frequency.value = 4200;
+      const comp = focusContext.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
+      const dest = focusContext.createMediaStreamDestination();
+      source.connect(high).connect(low).connect(comp).connect(dest);
+      focusTrack = dest.stream.getAudioTracks()[0];
+      $("focusStatus").textContent = "Experimentální filtrovaný vstup připraven; účinek ověř testem.";
+    } catch(e) { releaseFocus(); $("focusStatus").textContent = "Filtr nedostupný – používám původní poslech."; }
+  }
+  function startRecognition() {
+    if (focusTrack) {
+      try { recognition.start(focusTrack); return; } catch(e) { releaseFocus(); $("focusStatus").textContent = "Filtrovaný vstup odmítnut – původní poslech."; }
+    }
+    recognition.start();
+  }
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (SpeechRecognition) {
     recognition = new SpeechRecognition();
@@ -578,16 +612,18 @@
         const delay = noiseMode() ? Math.min(2000, 150 + emptyRestarts++ * 150) : 350;
         restartTimer = setTimeout(() => {
           if (!wantListening || starting) return;
-          try { starting = true; recognition.start(); }
-          catch(e) { starting = false; wantListening = false; $("listen").textContent = "🎙 Spustit poslech"; setStatus("Poslech se nepodařilo obnovit – spusť jej znovu.",false); }
+          try { starting = true; startRecognition(); }
+          catch(e) { releaseFocus(); starting = false; wantListening = false; $("listen").textContent = "🎙 Spustit poslech"; setStatus("Poslech se nepodařilo obnovit – spusť jej znovu.",false); }
         },delay);
       } else {
+        releaseFocus();
+        $("voiceFocus").disabled = false;
         $("listen").textContent = "🎙 Spustit poslech";
         setStatus("Poslech je vypnutý",false);
       }
     };
 
-    $("listen").addEventListener("click",() => {
+    $("listen").addEventListener("click",async () => {
       if (wantListening) {
         wantListening = false;
         clearTimeout(restartTimer);
@@ -600,9 +636,13 @@
           starting = true;
           emptyRestarts = 0;
           resetInterim();
-          recognition.start();
+          $("voiceFocus").disabled = true;
+          await prepareFocus();
+          startRecognition();
           setStatus("Spouštím mikrofon…",true);
         } catch(e) {
+          releaseFocus();
+          $("voiceFocus").disabled = false;
           starting = false;
           setStatus("Poslech se nepodařilo spustit. Zkus tlačítko znovu.",false);
         }
