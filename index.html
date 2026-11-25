@@ -101,7 +101,7 @@
   const FINAL_FLUSH_DELAY = 220;
   // Tři souběžné překlady pomohou při rychlém dialogu; pořadí titulků zůstává zachované.
   const MAX_WORKERS = 3;
-  const MAX_QUEUE = 30;
+  const MAX_QUEUE = 8;
 
   const normalize = s => (s || "").toLowerCase()
     .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
@@ -189,11 +189,16 @@
     });
 
     if (queue.length > MAX_QUEUE) {
-      // Při zahlcení ponecháme starší dialogy a upozorníme na čekající frontu.
-      queue.pop();
-      nextDisplayId--;
-      $("hint").textContent = "Překladač nestíhá – zpomal prosím přehrávání nebo zkus znovu.";
-      return;
+      // Při zahlcení zahodíme nejstarší dosud nezačaté překlady,
+      // aby se titulky nezpožďovaly za právě hraným dialogem.
+      while (queue.length > MAX_QUEUE) {
+        const dropped = queue.shift();
+        completed.set(dropped.displayId, {
+          generation: dropped.generation,
+          skipped: true
+        });
+      }
+      showCompletedInOrder();
     }
     runQueue();
   }
@@ -204,7 +209,7 @@
       completed.delete(nextDisplayInOrder);
       nextDisplayInOrder++;
 
-      if (result.generation !== clearGeneration) continue;
+      if (result.generation !== clearGeneration || result.skipped) continue;
       $("english").textContent = result.text;
       if (result.error) {
         $("czech").textContent = "Překlad se nepodařilo načíst.";
@@ -263,28 +268,24 @@
   // Průběžný překlad: po krátké pauze přeloží aktuální anglický náhled.
   // Debounce a kontrola sequence brání zahlcení a zastaralým titulkům.
   function schedulePreview(text) {
-    const clean = (text || "").replace(/\\s+/g," ").trim();
+    const clean = (text || "").replace(/\s+/g," ").trim();
     const key = normalize(clean);
     if (!key || key.length < 5 || key === lastPreviewKey) return;
     if (previewTimer) clearTimeout(previewTimer);
     lastPreviewKey = key;
     const sequence = ++previewSequence;
-    previewTimer = setTimeout(async () => {
+    previewTimer = setTimeout(() => {
       previewTimer = null;
       if (sequence !== previewSequence || !wantListening) return;
+      // Průběžný náhled smí použít jen místní slovník/mezipaměť.
+      // Online požadavky posíláme pouze pro potvrzené úseky řeči,
+      // jinak se desítky měnících se náhledů perou o síť s finálními titulky.
       const local = phrases[key] || cache.get(key);
-      try {
-        const translated = local || await requestTranslation(clean);
-        if (sequence !== previewSequence || !wantListening) return;
-        // Novější náhled nebo finální věta mají přednost díky kontrole sequence.
-        $("czech").textContent = translated;
-        $("hint").textContent = local
-          ? "Rychlý průběžný překlad z místní paměti."
-          : "Průběžný český překlad – věta se ještě dokončuje.";
-      } catch (_) {
-        // Náhled je pouze pomocný; finální překlad pokračuje samostatně.
-      }
-    }, 160);
+      if (!local) return;
+      if (sequence !== previewSequence || !wantListening) return;
+      $("czech").textContent = local;
+      $("hint").textContent = "Rychlý průběžný překlad z místní paměti.";
+    }, 180);
   }
 
   function showFinal(text) {
