@@ -260,8 +260,8 @@
 
   // Když řeč na chvíli zpomalí, ukážeme předběžný překlad ještě před
   // definitivním ukončením věty. Pozdější finální překlad ho bezpečně nahradí.
-  // Náhled používá jen místní slovník a mezipaměť.
-  // Nedělá další internetové požadavky, které by zpomalovaly finální titulky.
+  // Průběžný překlad: po krátké pauze přeloží aktuální anglický náhled.
+  // Debounce a kontrola sequence brání zahlcení a zastaralým titulkům.
   function schedulePreview(text) {
     const clean = (text || "").replace(/\\s+/g," ").trim();
     const key = normalize(clean);
@@ -269,15 +269,24 @@
     if (previewTimer) clearTimeout(previewTimer);
     lastPreviewKey = key;
     const sequence = ++previewSequence;
-    previewTimer = setTimeout(() => {
+    previewTimer = setTimeout(async () => {
       previewTimer = null;
       if (sequence !== previewSequence || !wantListening) return;
-      if (activeWorkers > 0 || queue.length > 0) return;
-      const translated = phrases[key] || cache.get(key);
-      if (!translated) return;
-      $("czech").textContent = translated;
-      $("hint").textContent = "Rychlý průběžný překlad z místní paměti.";
-    }, 350);
+      if (queue.length > 0) return;
+      const local = phrases[key] || cache.get(key);
+      try {
+        const translated = local || await requestTranslation(clean);
+        if (sequence !== previewSequence || !wantListening) return;
+        // Pokud mezitím dorazila finální věta, náhled ji nesmí přepsat.
+        if (queue.length > 0) return;
+        $("czech").textContent = translated;
+        $("hint").textContent = local
+          ? "Rychlý průběžný překlad z místní paměti."
+          : "Průběžný český překlad – věta se ještě dokončuje.";
+      } catch (_) {
+        // Náhled je pouze pomocný; finální překlad pokračuje samostatně.
+      }
+    }, 420);
   }
 
   function showFinal(text) {
