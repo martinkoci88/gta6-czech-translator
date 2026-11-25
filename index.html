@@ -130,8 +130,8 @@
     const task = (async () => {
       const googleController = new AbortController();
       const memoryController = new AbortController();
-      const googleTimeout = setTimeout(() => googleController.abort(), 5000);
-      const memoryTimeout = setTimeout(() => memoryController.abort(), 5000);
+      const googleTimeout = setTimeout(() => googleController.abort(), 9000);
+      const memoryTimeout = setTimeout(() => memoryController.abort(), 9000);
 
       const googleRequest = async () => {
         const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=" +
@@ -153,8 +153,9 @@
         if (!response.ok) throw new Error("Záložní překladač HTTP " + response.status);
         const data = await response.json();
         const raw = data?.responseData?.translatedText;
-        if (!raw || (data.responseStatus && data.responseStatus !== 200)) {
-          throw new Error("Záložní překladač nevrátil překlad.");
+        if (!raw || (data.responseStatus != null && Number(data.responseStatus) !== 200)) {
+          const detail = data?.responseDetails || data?.responseStatus || "bez podrobností";
+          throw new Error("MyMemory: " + detail);
         }
         const result = decodeHtml(raw).trim();
         if (!result || normalize(result) === key) throw new Error("Záložní překladač vrátil původní text.");
@@ -167,8 +168,11 @@
         if (cache.size > 600) cache.delete(cache.keys().next().value);
         return result;
       } catch (error) {
-        throw new Error("Nepodařilo se získat překlad z žádné služby: " +
-          (error?.message || "zkontroluj internetové připojení"));
+        const reasons = error instanceof AggregateError
+          ? error.errors.map(e => e?.message || String(e)).join(" | ")
+          : (error?.message || String(error));
+        throw new Error("Překlad selhal – " + reasons +
+          ". Zkontroluj internet a případné omezení překladové služby.");
       } finally {
         clearTimeout(googleTimeout);
         clearTimeout(memoryTimeout);
@@ -331,8 +335,7 @@
       } catch (_) {
         // Finální překlad zůstává ve frontě a pokusí se o překlad celého úseku.
       } finally {
-        clearTimeout(timeout);
-        if (previewController === controller) previewController = null;
+        // Náhled nesmí sahat na časovače finálního překladu.
       }
     }, 450);
   }
