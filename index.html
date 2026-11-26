@@ -96,6 +96,7 @@
     <div class="small">Známé fráze překládá místní slovník. Ostatní věty se překládají online; pro tuto funkci je potřeba internetové připojení.</div>
   </section>
   <div class="warning" id="compat">Poznámka: rozpoznávání řeči závisí na podpoře prohlížeče a povolení mikrofonu. Na iPhonu nemusí být funkce dostupná; pokud se mikrofon nespustí, vyzkoušíme jiný způsob.</div>
+  <div class="small" id="dbStatus">Načítám testovací databázi…</div>
   <footer>Aplikace poslouchá zvuk z mikrofonu zařízení; zatím není přímo propojená s PS5.</footer>
 </main>
 <script>
@@ -169,6 +170,23 @@
   const normalize = s => (s || "").toLowerCase()
     .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
 
+  // Optional dialogue database; online translation remains the fallback.
+  const dialogueDB = new Map();
+  fetch(new URL("dialogues.json", location.href), {cache:"no-cache"})
+    .then(r => { if (!r.ok) throw new Error("Database unavailable"); return r.json(); })
+    .then(data => {
+      if (!Array.isArray(data.entries)) return;
+      for (const row of data.entries) {
+        if (typeof row.en !== "string" || typeof row.cs !== "string") continue;
+        const key = normalize(row.en.replace(/[’]/g,"'"));
+        if (key && row.cs.trim()) dialogueDB.set(key,row.cs.trim());
+      }
+      $("dbStatus").textContent = "Databáze: " + dialogueDB.size + " testovacích replik";
+    }).catch(() => { $("dbStatus").textContent = "Databáze nedostupná – online překlad zůstává aktivní."; });
+  function localTranslation(key) {
+    return dialogueDB.get(key) || (Object.prototype.hasOwnProperty.call(phrases,key) ? phrases[key] : null) || cache.get(key) || null;
+  }
+
   function setStatus(text,on=false) {
     $("status").textContent = text;
     $("dot").classList.toggle("on",on);
@@ -220,7 +238,8 @@
   async function requestTranslation(text) {
     const key = normalize(text);
     if (!key) return "";
-    if (cache.has(key)) return cache.get(key);
+    const local = localTranslation(key);
+    if (local) return local;
     if (inFlight.has(key)) return inFlight.get(key);
 
     // Poskytovatele zkoušíme postupně, nikdy současně. Při HTTP 429
@@ -369,7 +388,7 @@
     // Pokud máme překlad pro celou větu/proslov, nikdy jej nerozdělujeme.
     // Jinak by se vícevětý vstup zobrazil po částech a první věta by zmizela.
     const wholeKey = normalize(clean);
-    const wholeLocal = phrases[wholeKey] || cache.get(wholeKey) || null;
+    const wholeLocal = localTranslation(wholeKey);
     const parts = wholeLocal ? [clean] : splitForTranslation(clean);
 
     // Kratší úseky překládáme samostatně a výsledky držíme ve správném pořadí.
@@ -381,7 +400,7 @@
         text: part,
         generation: clearGeneration,
         displayId,
-        local: phrases[key] || cache.get(key) || null
+        local: localTranslation(key)
       });
     }
 
@@ -527,7 +546,7 @@
 
       lastPreviewKey = snapshotKey;
       const sequence = ++previewSequence;
-      const local = phrases[snapshotKey] || cache.get(snapshotKey);
+      const local = localTranslation(snapshotKey);
       previewInFlight = true;
 
       requestTranslation(snapshot)
