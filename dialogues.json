@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "source": "Original synthetic test phrases; not verified GTA VI dialogue",
+  "entries": [
+    {
+      "en": "We need to leave now.",
+      "cs": "Musíme hned odejít.",
+      "speaker": null
+    },
+    {
+      "en": "Keep your eyes on the road.",
+      "cs": "Dívej se na silnici.",
+      "speaker": null
+    },
+    {
+      "en": "I'll meet you outside.",
+      "cs": "Sejdeme se venku.",
+      "speaker": null
+    },
+    {
+      "en": "Don't make a sound.",
+      "cs": "Ani muk.",
+      "speaker": null
+    },
+    {
+      "en": "We have to stick together.",
+      "cs": "Musíme držet při sobě.",
+      "speaker": null
+    },
+    {
+      "en": "Wait for my signal.",
+      "cs": "Počkej na můj signál.",
+      "speaker": null
+    },
+    {
+      "en": "Is everyone okay?",
+      "cs": "Jsou všichni v pořádku?",
+      "speaker": null
+    },
+    {
+      "en": "I know a shortcut.",
+      "cs": "Znám zkratku.",
+      "speaker": null
+    }
+  ]
+}
