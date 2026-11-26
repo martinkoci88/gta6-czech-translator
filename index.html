@@ -96,7 +96,7 @@
     <div class="small">Známé fráze překládá místní slovník. Ostatní věty se překládají online; pro tuto funkci je potřeba internetové připojení.</div>
   </section>
   <div class="warning" id="compat">Poznámka: rozpoznávání řeči závisí na podpoře prohlížeče a povolení mikrofonu. Na iPhonu nemusí být funkce dostupná; pokud se mikrofon nespustí, vyzkoušíme jiný způsob.</div>
-  <div class="small" id="dbStatus">Načítám testovací databázi…</div>
+  <section class="manual"><label for="privateDbFile">Soukromý import anglicko-českých dialogů (JSON)</label><input type="file" id="privateDbFile" accept=".json,application/json"><div class="small" id="privateDbStatus">Zatím bez soukromé databáze. Soubor zůstává v tomto prohlížeči.</div></section><div class="small" id="dbStatus">Načítám testovací databázi…</div>
   <footer>Aplikace poslouchá zvuk z mikrofonu zařízení; zatím není přímo propojená s PS5.</footer>
 </main>
 <script>
@@ -183,8 +183,47 @@
       }
       $("dbStatus").textContent = "Databáze: " + dialogueDB.size + " testovacích replik";
     }).catch(() => { $("dbStatus").textContent = "Databáze nedostupná – online překlad zůstává aktivní."; });
+  const importedDialogues = new Map();
+  const dbStore = new Promise((resolve,reject) => {
+    const req = indexedDB.open("gta-cz-private-dialogues",1);
+    req.onupgradeneeded = () => req.result.createObjectStore("data");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  dbStore.catch(() => {});
+  function loadPrivateRows(rows) {
+    importedDialogues.clear();
+    for (const row of rows) {
+      if (typeof row.en !== "string" || typeof row.cs !== "string") continue;
+      const key = normalize(row.en);
+      if (key && row.cs.trim()) importedDialogues.set(key,row.cs.trim());
+    }
+    $("privateDbStatus").textContent = "Soukromá databáze: " + importedDialogues.size + " překladů";
+  }
+  dbStore.then(db => {
+    const req = db.transaction("data").objectStore("data").get("rows");
+    req.onsuccess = () => { if (Array.isArray(req.result)) loadPrivateRows(req.result); };
+  }).catch(() => {});
+  $("privateDbFile").addEventListener("change",async e => {
+    try {
+      const file = e.target.files[0]; if (!file) return;
+      if (file.size > 80000000) throw Error("Soubor je příliš velký");
+      const parsed = JSON.parse(await file.text());
+      const rows = Array.isArray(parsed) ? parsed : parsed.entries;
+      if (!Array.isArray(rows)) throw Error("Očekávám JSON s entries");
+      const clean = rows.filter(row => row && typeof row.en === "string" && typeof row.cs === "string" && normalize(row.en) && row.cs.trim()).map(row => ({en:row.en,cs:row.cs}));
+      if (!clean.length) throw Error("Soubor neobsahuje anglicko-české dvojice");
+      const db = await dbStore;
+      await new Promise((resolve,reject) => {
+        const tx = db.transaction("data","readwrite"); tx.objectStore("data").put(clean,"rows");
+        tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error); tx.onabort=()=>reject(tx.error);
+      });
+      loadPrivateRows(clean);
+    } catch(err) { $("privateDbStatus").textContent = "Import selhal: " + err.message; }
+    finally { e.target.value=""; }
+  });
   function localTranslation(key) {
-    return dialogueDB.get(key) || (Object.prototype.hasOwnProperty.call(phrases,key) ? phrases[key] : null) || cache.get(key) || null;
+    return importedDialogues.get(key) || dialogueDB.get(key) || (Object.prototype.hasOwnProperty.call(phrases,key) ? phrases[key] : null) || cache.get(key) || null;
   }
 
   function setStatus(text,on=false) {
