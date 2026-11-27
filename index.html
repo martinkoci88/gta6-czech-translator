@@ -198,6 +198,7 @@
         status.textContent="Konfigurace: "+[["DeepL",c.translation],["Whisper",c.whisper],["Dabing",c.dubbing],["Jason",c.jason],["Lucia",c.lucia]].map(([n,ok])=>n+": "+(ok?"nastaveno":"chybí")).join(" · ");
       }).catch(()=>{status.textContent="Cloudflare: konfiguraci nelze ověřit.";});
   }
+  let dictionaryLoaded = false;
   const dictionaryReady = fetch(new URL("dialogues-v40.json", document.baseURI))
     .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(data => {
@@ -210,6 +211,7 @@
         if (!storyAliases.has(alias)) storyAliases.set(alias, cleaned);
         else if (storyAliases.get(alias) !== cleaned) storyAliases.set(alias, null);
       }
+      dictionaryLoaded = true;
       dbStatus.textContent = "Databáze V40: " + storyDictionary.size + " známých frází načteno.";
     }).catch(() => {
       dbStatus.textContent = "Databáze V40 se nenačetla. Používám záložní překlad.";
@@ -294,6 +296,7 @@
   async function requestTranslation(text) {
     const key = normalize(text);
     if (!key) return "";
+    if (!dictionaryLoaded) await Promise.race([dictionaryReady, wait(600)]);
     const local = localTranslation(key);
     if (local) return local;
     if (inFlight.has(key)) return inFlight.get(key);
@@ -365,7 +368,7 @@
           if (gap) await wait(gap);
           nextNetworkRequestAt = Date.now() + 180;
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), provider.name === "DeepL" ? 10000 : 4500);
+          const timeout = setTimeout(() => controller.abort(), provider.name === "DeepL" ? 3500 : 2200);
           try {
             const response = await fetch(provider.url, {
               method: provider.method || "GET",
@@ -686,6 +689,12 @@
     if (!clean) return;
     const key = normalize(clean);
     if (!key || key === lastFinalText) return;
+    if (storyOnly() && !dictionaryLoaded) {
+      $("hint").textContent = "Přísný filtr čeká na databázi V40.";
+      const generation = clearGeneration;
+      dictionaryReady.then(() => { if (dictionaryLoaded && generation === clearGeneration) showFinal(clean); });
+      return;
+    }
     if (storyOnly() && !knownStory(key)) {
       $("hint").textContent = "Neznámá fráze přeskočena (přísný filtr).";
       return;
