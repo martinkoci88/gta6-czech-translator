@@ -87,6 +87,7 @@
     <label style="display:flex;align-items:center;gap:10px;color:#f4f7fb"><input type="checkbox" id="voiceFocus"> Voice Focus – experimentální zvukový filtr</label>
     <div class="small" id="focusStatus">Zapni před spuštěním poslechu. Podpora závisí na prohlížeči; nejde o AI izolaci hlasu.</div>
     <label style="display:flex;align-items:center;gap:10px;color:#f4f7fb"><input type="checkbox" id="noiseMode" checked> Herní režim – odolnější poslech</label>
+    <label style="display:flex;align-items:center;gap:10px;color:#f4f7fb"><input type="checkbox" id="storyOnly"> Pouze známé dialogy V40 (přísný filtr, může vynechat neznámou řeč)</label>
     <div class="small">Při výpadku se poslech rychle obnoví a zachová poslední dostatečně dlouhý rozpoznaný úsek. Nejde o izolaci hlasu ani odstranění střelby.</div>
   </section>
   <section class="manual">
@@ -582,12 +583,20 @@
   // Průběžný překlad: po krátké pauze odešleme stabilní část řeči online.
   // Nečekáme tedy na konec celé věty. Starší odpověď nesmí přepsat novější titulek.
   // Současně běží jen jeden náhled; cache a inFlight brání duplicitním požadavkům.
+  // Optional strict dictionary mode; this is not acoustic radio detection.
+  const storyOnly = () => $("storyOnly").checked;
+  const knownStory = key => storyDictionary.get(key) || storyAliases.get(aliasKey(key)) || typoIndex.get(key);
   function schedulePreview(text) {
     const clean = (text || "").replace(/\s+/g," ").trim();
     const key = normalize(clean);
     if (!key || key.length < 8) return;
     latestPreviewText = clean;
-    const immediate = localTranslation(key);
+    if (storyOnly() && !knownStory(key)) {
+      previewSequence++;
+      if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+      return;
+    }
+    const immediate = storyOnly() ? knownStory(key) : localTranslation(key);
     if (immediate) {
       previewSequence++;
       if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
@@ -645,6 +654,10 @@
     if (!clean) return;
     const key = normalize(clean);
     if (!key || key === lastFinalText) return;
+    if (storyOnly() && !knownStory(key)) {
+      $("hint").textContent = "Neznámá fráze přeskočena (přísný filtr).";
+      return;
+    }
     lastFinalText = key;
     $("english").textContent = clean;
     addTranslation(clean);
