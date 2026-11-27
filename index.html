@@ -169,6 +169,18 @@
   const normalize = s => (s || "").toLowerCase()
     .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
 
+  // V40: exact, unambiguous matches; network fallback remains available.
+  const storyDictionary = new Map();
+  const dictionaryReady = fetch(new URL("dialogues-v40.json", document.baseURI))
+    .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(data => {
+      for (const [key, value] of Object.entries(data)) {
+        if (typeof value === "string" && value.trim()) storyDictionary.set(key, value);
+      }
+      $("hint").textContent = "Databáze V40: " + storyDictionary.size + " známých frází.";
+    }).catch(() => {});
+  const localTranslation = key => storyDictionary.get(key) || phrases[key] || cache.get(key);
+
   function setStatus(text,on=false) {
     $("status").textContent = text;
     $("dot").classList.toggle("on",on);
@@ -220,7 +232,8 @@
   async function requestTranslation(text) {
     const key = normalize(text);
     if (!key) return "";
-    if (cache.has(key)) return cache.get(key);
+    const local = localTranslation(key);
+    if (local) return local;
     if (inFlight.has(key)) return inFlight.get(key);
 
     // Poskytovatele zkoušíme postupně, nikdy současně. Při HTTP 429
@@ -369,7 +382,7 @@
     // Pokud máme překlad pro celou větu/proslov, nikdy jej nerozdělujeme.
     // Jinak by se vícevětý vstup zobrazil po částech a první věta by zmizela.
     const wholeKey = normalize(clean);
-    const wholeLocal = phrases[wholeKey] || cache.get(wholeKey) || null;
+    const wholeLocal = localTranslation(wholeKey) || null;
     const parts = wholeLocal ? [clean] : splitForTranslation(clean);
 
     // Kratší úseky překládáme samostatně a výsledky držíme ve správném pořadí.
@@ -381,7 +394,7 @@
         text: part,
         generation: clearGeneration,
         displayId,
-        local: phrases[key] || cache.get(key) || null
+        local: localTranslation(key) || null
       });
     }
 
@@ -515,6 +528,15 @@
     const key = normalize(clean);
     if (!key || key.length < 8) return;
     latestPreviewText = clean;
+    const immediate = localTranslation(key);
+    if (immediate) {
+      previewSequence++;
+      if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+      lastPreviewKey = key;
+      $("czech").textContent = immediate;
+      $("hint").textContent = "Okamžitý překlad z místní databáze.";
+      return;
+    }
 
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
@@ -527,7 +549,7 @@
 
       lastPreviewKey = snapshotKey;
       const sequence = ++previewSequence;
-      const local = phrases[snapshotKey] || cache.get(snapshotKey);
+      const local = localTranslation(snapshotKey);
       previewInFlight = true;
 
       requestTranslation(snapshot)
