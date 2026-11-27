@@ -96,6 +96,7 @@
     <div class="controls" style="margin-bottom:0"><button id="test" style="background:#26364b;color:#fff;width:100%">Vyzkoušet překlad</button></div>
     <div class="small">Známé fráze překládá místní slovník. Ostatní věty se překládají online; pro tuto funkci je potřeba internetové připojení.</div>
   </section>
+  <section class="manual"><label><input type="checkbox" id="collectDialogs"> Sběr dialogů</label><div class="small" id="collectStatus" role="status"></div><div class="controls"><button id="exportDialogs">Export JSON</button></div><div class="small">Ukládá rozpoznaný text a dostupný překlad do tohoto telefonu. Neověřené dialogy, nikoli oficiální databáze. Pro sběr vypni dabing a přísný filtr.</div></section>
   <div class="warning" id="compat">Poznámka: rozpoznávání řeči závisí na podpoře prohlížeče a povolení mikrofonu. Na iPhonu nemusí být funkce dostupná; pokud se mikrofon nespustí, vyzkoušíme jiný způsob.</div>
   <footer>Aplikace poslouchá zvuk z mikrofonu zařízení; zatím není přímo propojená s PS5.</footer>
 </main>
@@ -443,6 +444,35 @@
     return chunks;
   }
 
+  const collectionKey="gta-dialog-collection-v1";
+  let collected=[];
+  try { const saved=JSON.parse(localStorage.getItem(collectionKey)||"[]"); if(Array.isArray(saved)) collected=saved; } catch (_) {}
+  const collectionPending=new Map();
+  function collectionStatus(message="") {
+    $("collectStatus").textContent=collected.length+" úseků · "+collected.filter(x=>x.cs).length+" přeloženo"+(message?" · "+message:"");
+  }
+  function persistCollection(){try{localStorage.setItem(collectionKey,JSON.stringify(collected));collectionStatus();}catch(_){collectionStatus("Paměť nedostupná – exportuj před zavřením.");}}
+  collectionStatus();
+  $("collectDialogs").addEventListener("change",()=>{
+    if($("collectDialogs").checked){$("storyOnly").checked=false;if(dubEnabled)$("dubToggle").click();}
+    collectionStatus($("collectDialogs").checked?"Sběr zapnut":"Sběr vypnut");
+  });
+  $("exportDialogs").addEventListener("click",()=>{
+    const blob=new Blob([JSON.stringify({version:1,verified:false,dialogs:collected},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="gta-dialogs-"+new Date().toISOString().slice(0,10)+".json";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  });
+  function collectPart(item){
+    if(!$("collectDialogs").checked)return;
+    const row={en:item.text,cs:null,capturedAt:new Date().toISOString(),verified:false};
+    collected.push(row);collectionPending.set(item.generation+":"+item.displayId,row);persistCollection();
+  }
+  function finishCollected(item,translation){
+    const key=item.generation+":"+item.displayId,row=collectionPending.get(key);
+    if(!row)return;
+    collectionPending.delete(key);
+    if(typeof translation==="string"&&translation.trim())row.cs=translation;
+    persistCollection();
+  }
   function addTranslation(text) {
     const clean = (text || "").replace(/\s+/g," ").trim();
     if (!normalize(clean)) return;
@@ -464,18 +494,16 @@
         completed.set(displayId, { generation, skipped: true });
         showCompletedInOrder();
       }, DISPLAY_MAX_WAIT));
-      queue.push({
-        text: part,
-        generation: clearGeneration,
-        displayId,
-        local: localTranslation(key) || null
-      });
+      const item={text:part,generation:clearGeneration,displayId,local:localTranslation(key)||null};
+      collectPart(item);
+      queue.push(item);
     }
 
     if (queue.length > MAX_QUEUE) {
       // Zahodíme nejstarší dosud nezačaté úseky, aby se nezobrazovaly zastaralé titulky.
       while (queue.length > MAX_QUEUE) {
         const dropped = queue.shift();
+        finishCollected(dropped,null);
         completed.set(dropped.displayId, { generation: dropped.generation, skipped: true });
       }
       showCompletedInOrder();
@@ -542,7 +570,7 @@
       }finally{clearTimeout(requestTimer);clearTimeout(playTimer);dubAudio.onended=null;dubAudio.onerror=null;if(url)URL.revokeObjectURL(url);dubDone=null;dubAbort=null;}
     }}finally{dubRunning=false;}
   }
-  function speakDub(text){if(!dubEnabled||!text)return;dubQueue=dubQueue.filter(item=>!dubExpired(item));if(dubQueue.length>=2)dubQueue.shift();dubQueue.push({text,profile:profileSelect.value,queuedAt:performance.now()});drainDub();}
+  function speakDub(text){if(!dubEnabled||!text||$("collectDialogs").checked)return;dubQueue=dubQueue.filter(item=>!dubExpired(item));if(dubQueue.length>=2)dubQueue.shift();dubQueue.push({text,profile:profileSelect.value,queuedAt:performance.now()});drainDub();}
   function showConfirmedSubtitle(text) {
     if(text!==lastConfirmedSubtitle)speakDub(text);
     if(lastConfirmedSubtitle && lastConfirmedSubtitle !== text) { subtitleHistory.push(lastConfirmedSubtitle); if(subtitleHistory.length>2)subtitleHistory.shift(); }
@@ -582,6 +610,7 @@
       if (index < 0) break;
       const item = queue.splice(index, 1)[0];
       const result = item.local || localTranslation(normalize(item.text));
+      finishCollected(item,result);
       if (item.generation === clearGeneration && item.displayId >= nextDisplayInOrder && !completed.has(item.displayId)) {
         completed.set(item.displayId, {
           generation: item.generation, text: item.text,
@@ -592,13 +621,14 @@
     showCompletedInOrder();
     while (activeWorkers < MAX_WORKERS && queue.length) {
       const item = queue.shift();
-      if (item.displayId < nextDisplayInOrder || completed.has(item.displayId)) continue;
+      if (item.displayId < nextDisplayInOrder || completed.has(item.displayId)) {finishCollected(item,null);continue;}
       activeWorkers++;
 
       const translation = requestTranslation(item.text);
 
       translation
         .then(result => {
+          finishCollected(item,result);
           if (item.generation === clearGeneration && item.displayId >= nextDisplayInOrder && !completed.has(item.displayId)) {
             completed.set(item.displayId, {
               generation: item.generation,
@@ -610,6 +640,7 @@
           }
         })
         .catch(error => {
+          finishCollected(item,null);
           if (item.generation === clearGeneration && item.displayId >= nextDisplayInOrder && !completed.has(item.displayId)) {
             completed.set(item.displayId, {
               generation: item.generation,
@@ -699,14 +730,14 @@
     const clean = (text || "").replace(/\s+/g," ").trim();
     if (!clean) return;
     const key = normalize(clean);
-    if (!key || key === lastFinalText) return;
-    if (storyOnly() && !dictionaryLoaded) {
+    if (!key || (key === lastFinalText && !$("collectDialogs").checked)) return;
+    if (!$("collectDialogs").checked && storyOnly() && !dictionaryLoaded) {
       $("hint").textContent = "Přísný filtr čeká na databázi V40.";
       const generation = clearGeneration;
       dictionaryReady.then(() => { if (dictionaryLoaded && generation === clearGeneration) showFinal(clean); });
       return;
     }
-    if (storyOnly() && !knownStory(key)) {
+    if (!$("collectDialogs").checked && storyOnly() && !knownStory(key)) {
       $("hint").textContent = "Neznámá fráze přeskočena (přísný filtr).";
       return;
     }
@@ -972,6 +1003,7 @@
     lastPreviewKey = "";
     latestPreviewText = "";
     lastFinalText = "";
+    queue.forEach(item=>finishCollected(item,null));
     queue.length = 0;
     $("english").textContent = "Tady se zobrazí rozpoznaná anglická řeč…";
     if(dubEnabled)stopDub();
