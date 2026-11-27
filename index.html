@@ -151,6 +151,8 @@
   let nextDisplayId = 1;
   let nextDisplayInOrder = 1;
   const completed = new Map();
+  const displayDeadlines = new Map();
+  const DISPLAY_MAX_WAIT = 4500;
   let interimTimer = null;
   let previewTimer = null;
   let previewController = null;
@@ -456,6 +458,12 @@
       const key = normalize(part);
       if (!key) continue;
       const displayId = nextDisplayId++;
+      const generation = clearGeneration;
+      displayDeadlines.set(displayId, setTimeout(() => {
+        if (generation !== clearGeneration || displayId < nextDisplayInOrder || completed.has(displayId)) return;
+        completed.set(displayId, { generation, skipped: true });
+        showCompletedInOrder();
+      }, DISPLAY_MAX_WAIT));
       queue.push({
         text: part,
         generation: clearGeneration,
@@ -546,6 +554,8 @@
     while (completed.has(nextDisplayInOrder)) {
       const result = completed.get(nextDisplayInOrder);
       completed.delete(nextDisplayInOrder);
+      clearTimeout(displayDeadlines.get(nextDisplayInOrder));
+      displayDeadlines.delete(nextDisplayInOrder);
       nextDisplayInOrder++;
 
       if (result.generation !== clearGeneration || result.skipped) continue;
@@ -572,7 +582,7 @@
       if (index < 0) break;
       const item = queue.splice(index, 1)[0];
       const result = item.local || localTranslation(normalize(item.text));
-      if (item.generation === clearGeneration) {
+      if (item.generation === clearGeneration && item.displayId >= nextDisplayInOrder && !completed.has(item.displayId)) {
         completed.set(item.displayId, {
           generation: item.generation, text: item.text,
           translation: result, local: true
@@ -582,13 +592,14 @@
     showCompletedInOrder();
     while (activeWorkers < MAX_WORKERS && queue.length) {
       const item = queue.shift();
+      if (item.displayId < nextDisplayInOrder || completed.has(item.displayId)) continue;
       activeWorkers++;
 
       const translation = requestTranslation(item.text);
 
       translation
         .then(result => {
-          if (item.generation === clearGeneration) {
+          if (item.generation === clearGeneration && item.displayId >= nextDisplayInOrder && !completed.has(item.displayId)) {
             completed.set(item.displayId, {
               generation: item.generation,
               text: item.text,
@@ -599,7 +610,7 @@
           }
         })
         .catch(error => {
-          if (item.generation === clearGeneration) {
+          if (item.generation === clearGeneration && item.displayId >= nextDisplayInOrder && !completed.has(item.displayId)) {
             completed.set(item.displayId, {
               generation: item.generation,
               text: item.text,
