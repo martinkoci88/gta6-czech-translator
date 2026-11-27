@@ -463,6 +463,16 @@
   }
   let lastConfirmedSubtitle = "";
   let dubEnabled=false;
+  // Manual speaker profiles for the phone fallback; no speaker identity inference.
+  const dubProfiles = { neutral:1, jason:0.85, lucia:1.15 };
+  const profileLabel = document.createElement("label");
+  profileLabel.textContent = "Profil záložního hlasu (ruční výběr): ";
+  const profileSelect = document.createElement("select");
+  for (const [value,label] of [["neutral","Neutrální"],["jason","Jason – hlubší"],["lucia","Lucia – vyšší"]]) {
+    const option=document.createElement("option");option.value=value;option.textContent=label;profileSelect.appendChild(option);
+  }
+  profileLabel.appendChild(profileSelect);
+  $("dubStatus").insertAdjacentElement("beforebegin",profileLabel);
   const synth=window.speechSynthesis, dubAudio=new Audio();
   let dubQueue=[],dubRunning=false,dubEpoch=0,dubAbort=null,dubDone=null;
   function stopDub(){dubEpoch++;dubQueue=[];dubAbort?.abort();dubAudio.pause();dubDone?.();synth?.cancel();}
@@ -478,7 +488,7 @@
   async function drainDub(){
     if(dubRunning)return;dubRunning=true;
     try{while(dubEnabled&&dubQueue.length){
-      const text=dubQueue.shift(),epoch=dubEpoch;let url;
+      const item=dubQueue.shift(),text=item.text,epoch=dubEpoch;let url;
       try{
         dubAbort=new AbortController();
         const r=await fetch("/api/dub",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text}),signal:dubAbort.signal});
@@ -491,7 +501,7 @@
         if(epoch===dubEpoch&&dubEnabled){
           $("dubStatus").textContent="AI hlas nedostupný ("+e.message+"). Záložní hlas telefonu.";
           if(synth&&window.SpeechSynthesisUtterance)await new Promise(resolve=>{
-            const u=new SpeechSynthesisUtterance(text);u.lang="cs-CZ";u.rate=Number($("dubRate").value);
+            const u=new SpeechSynthesisUtterance(text);u.lang="cs-CZ";u.rate=Number($("dubRate").value);u.pitch=dubProfiles[item.profile] || 1;
             const voice=synth.getVoices().find(v=>v.lang.toLowerCase().startsWith("cs"));if(voice)u.voice=voice;
             dubDone=resolve;u.onend=resolve;u.onerror=resolve;synth.speak(u);
           });
@@ -499,7 +509,7 @@
       }finally{if(url)URL.revokeObjectURL(url);dubDone=null;dubAbort=null;}
     }}finally{dubRunning=false;}
   }
-  function speakDub(text){if(!dubEnabled||!text)return;if(dubQueue.length>=3)dubQueue.shift();dubQueue.push(text);drainDub();}
+  function speakDub(text){if(!dubEnabled||!text)return;if(dubQueue.length>=3)dubQueue.shift();dubQueue.push({text,profile:profileSelect.value});drainDub();}
   function showConfirmedSubtitle(text) {
     if(text!==lastConfirmedSubtitle)speakDub(text);
     if(lastConfirmedSubtitle && lastConfirmedSubtitle !== text) { subtitleHistory.push(lastConfirmedSubtitle); if(subtitleHistory.length>2)subtitleHistory.shift(); }
