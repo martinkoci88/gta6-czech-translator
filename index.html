@@ -170,6 +170,10 @@
     .replace(/[‘’]/g,"'").replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
 
   // V40: exact matches and conservative contraction aliases.
+  const cleanStoryText = value => value
+    .replace(/~tone~\s*\[[^\]\r\n]{1,80}\]\s*~tone~/gi," ")
+    .replace(/~(?:n|m|t|tone|rp|lr:[\d.]+|COLOR_PURPLE)~/gi," ")
+    .replace(/\s+/g," ").trim();
   const storyDictionary = new Map();
   const storyAliases = new Map();
   const aliasKey = key => key.replace(/\b(i'm|you're|we're|they're|don't|can't|won't|didn't|isn't)\b/g,
@@ -184,10 +188,12 @@
     .then(data => {
       for (const [key, value] of Object.entries(data)) {
         if (typeof value !== "string" || !value.trim()) continue;
-        storyDictionary.set(key, value);
+        const cleaned = cleanStoryText(value);
+        if (!cleaned) continue;
+        storyDictionary.set(key, cleaned);
         const alias = aliasKey(key);
-        if (!storyAliases.has(alias)) storyAliases.set(alias, value);
-        else if (storyAliases.get(alias) !== value) storyAliases.set(alias, null);
+        if (!storyAliases.has(alias)) storyAliases.set(alias, cleaned);
+        else if (storyAliases.get(alias) !== cleaned) storyAliases.set(alias, null);
       }
       dbStatus.textContent = "Databáze V40: " + storyDictionary.size + " známých frází načteno.";
     }).catch(() => {
