@@ -491,11 +491,11 @@
       const item=dubQueue.shift(),text=item.text,epoch=dubEpoch;let url;
       try{
         dubAbort=new AbortController();
-        const r=await fetch("/api/dub",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text}),signal:dubAbort.signal});
+        const r=await fetch("/api/dub",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,profile:item.profile}),signal:dubAbort.signal});
         if(!r.ok)throw Error("HTTP "+r.status);
         const blob=await r.blob();if(epoch!==dubEpoch||!dubEnabled)continue;
         url=URL.createObjectURL(blob);dubAudio.src=url;dubAudio.playbackRate=Number($("dubRate").value);
-        $("dubStatus").textContent="ElevenLabs · AI český hlas";
+        $("dubStatus").textContent="ElevenLabs · AI český hlas ("+item.profile+")";
         await new Promise((resolve,reject)=>{dubDone=resolve;dubAudio.onended=resolve;dubAudio.onerror=reject;dubAudio.play().catch(reject);});
       }catch(e){
         if(epoch===dubEpoch&&dubEnabled){
