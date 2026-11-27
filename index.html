@@ -167,19 +167,33 @@
   const MAX_QUEUE = 12;
 
   const normalize = s => (s || "").toLowerCase()
-    .replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
+    .replace(/[‘’]/g,"'").replace(/[^a-z0-9' ]/g," ").replace(/\s+/g," ").trim();
 
-  // V40: exact, unambiguous matches; network fallback remains available.
+  // V40: exact matches and conservative contraction aliases.
   const storyDictionary = new Map();
+  const storyAliases = new Map();
+  const aliasKey = key => key.replace(/\b(i'm|you're|we're|they're|don't|can't|won't|didn't|isn't)\b/g,
+      word => ({"i'm":"i am","you're":"you are","we're":"we are","they're":"they are","don't":"do not","can't":"cannot","won't":"will not","didn't":"did not","isn't":"is not"})[word]);
+  const dbStatus = document.createElement("div");
+  dbStatus.setAttribute("role","status");
+  dbStatus.style.cssText = "font-size:.85rem;opacity:.85;margin-top:.5rem";
+  dbStatus.textContent = "Databáze V40: načítám…";
+  $("hint").insertAdjacentElement("afterend", dbStatus);
   const dictionaryReady = fetch(new URL("dialogues-v40.json", document.baseURI))
     .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(data => {
       for (const [key, value] of Object.entries(data)) {
-        if (typeof value === "string" && value.trim()) storyDictionary.set(key, value);
+        if (typeof value !== "string" || !value.trim()) continue;
+        storyDictionary.set(key, value);
+        const alias = aliasKey(key);
+        if (!storyAliases.has(alias)) storyAliases.set(alias, value);
+        else if (storyAliases.get(alias) !== value) storyAliases.set(alias, null);
       }
-      $("hint").textContent = "Databáze V40: " + storyDictionary.size + " známých frází.";
-    }).catch(() => {});
-  const localTranslation = key => storyDictionary.get(key) || phrases[key] || cache.get(key);
+      dbStatus.textContent = "Databáze V40: " + storyDictionary.size + " známých frází načteno.";
+    }).catch(() => {
+      dbStatus.textContent = "Databáze V40 se nenačetla. Používám záložní překlad.";
+    });
+  const localTranslation = key => storyDictionary.get(key) || phrases[key] || cache.get(key) || storyAliases.get(aliasKey(key));
 
   function setStatus(text,on=false) {
     $("status").textContent = text;
