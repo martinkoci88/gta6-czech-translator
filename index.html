@@ -77,7 +77,7 @@
     <div class="czech" id="czech">České titulky se zobrazí zde.</div>
     <div class="hint" id="hint">Připraveno na živý přepis a průběžný český překlad.</div>
   </section>
-  <section class="manual"><button id="dubToggle" style="width:100%">🔊 Zapnout český dabing</button><label for="dubRate" style="margin-top:12px">Rychlost dabingu: <output id="dubRateValue">0.85</output>×</label><input id="dubRate" type="range" min="0.6" max="1.2" step="0.05" value="0.85" style="width:100%"><div class="small" id="dubStatus">AI dabing ElevenLabs se záložním hlasem telefonu. Používej sluchátka.</div></section>
+  <section class="manual"><button id="dubToggle" style="width:100%">🔊 Zapnout český dabing</button><label for="dubRate" style="margin-top:12px">Rychlost dabingu: <output id="dubRateValue">1.00</output>×</label><input id="dubRate" type="range" min="0.6" max="1.2" step="0.05" value="1.0" style="width:100%"><div class="small" id="dubStatus">AI dabing ElevenLabs se záložním hlasem telefonu. Používej sluchátka.</div></section>
   <div class="controls">
     <button id="listen">🎙 Spustit poslech</button>
     <button id="clear">Vymazat</button>
@@ -516,7 +516,7 @@
   async function drainDub(){
     if(dubRunning)return;dubRunning=true;
     try{while(dubEnabled&&dubQueue.length){
-      const item=dubQueue.shift(),text=item.text,epoch=dubEpoch;let url,requestTimer;
+      const item=dubQueue.shift(),text=item.text,epoch=dubEpoch;let url,requestTimer,playTimer;
       if(dubExpired(item))continue;
       try{
         if(staticHosting)throw Error("AI dabing vyžaduje Cloudflare Pages");
@@ -529,17 +529,17 @@
         clearTimeout(requestTimer);
         url=URL.createObjectURL(blob);dubAudio.src=url;dubAudio.playbackRate=Number($("dubRate").value);
         $("dubStatus").textContent="ElevenLabs · AI český hlas ("+item.profile+")";
-        await new Promise((resolve,reject)=>{dubDone=resolve;dubAudio.onended=resolve;dubAudio.onerror=reject;dubAudio.play().catch(reject);});
+        await new Promise((resolve,reject)=>{dubDone=resolve;dubAudio.onended=resolve;dubAudio.onerror=reject;playTimer=setTimeout(()=>{dubAudio.pause();resolve();},Math.min(45000,Math.max(8000,text.length*180)));dubAudio.play().catch(reject);});
       }catch(e){
         if(epoch===dubEpoch&&dubEnabled&&!dubExpired(item)){
           $("dubStatus").textContent="AI hlas nedostupný ("+e.message+"). Záložní hlas telefonu.";
           if(synth&&window.SpeechSynthesisUtterance)await new Promise(resolve=>{
             const u=new SpeechSynthesisUtterance(text);u.lang="cs-CZ";u.rate=Number($("dubRate").value);u.pitch=dubProfiles[item.profile] || 1;
             const voice=synth.getVoices().find(v=>v.lang.toLowerCase().startsWith("cs"));if(voice)u.voice=voice;
-            dubDone=resolve;u.onend=resolve;u.onerror=resolve;synth.speak(u);
+            dubDone=resolve;u.onend=resolve;u.onerror=resolve;playTimer=setTimeout(()=>{synth.cancel();resolve();},Math.min(45000,Math.max(8000,text.length*180)));synth.speak(u);
           });
         }
-      }finally{clearTimeout(requestTimer);dubAudio.onended=null;dubAudio.onerror=null;if(url)URL.revokeObjectURL(url);dubDone=null;dubAbort=null;}
+      }finally{clearTimeout(requestTimer);clearTimeout(playTimer);dubAudio.onended=null;dubAudio.onerror=null;if(url)URL.revokeObjectURL(url);dubDone=null;dubAbort=null;}
     }}finally{dubRunning=false;}
   }
   function speakDub(text){if(!dubEnabled||!text)return;dubQueue=dubQueue.filter(item=>!dubExpired(item));if(dubQueue.length>=2)dubQueue.shift();dubQueue.push({text,profile:profileSelect.value,queuedAt:performance.now()});drainDub();}
@@ -961,6 +961,8 @@
     nextDisplayId = 1;
     nextDisplayInOrder = 1;
     completed.clear();
+    for (const timer of displayDeadlines.values()) clearTimeout(timer);
+    displayDeadlines.clear();
     if (interimTimer) { clearTimeout(interimTimer); interimTimer = null; }
     if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
     if (previewController) { previewController.abort(); previewController = null; }
