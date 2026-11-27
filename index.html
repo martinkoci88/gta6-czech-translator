@@ -199,7 +199,34 @@
     }).catch(() => {
       dbStatus.textContent = "Databáze V40 se nenačetla. Používám záložní překlad.";
     });
-  const localTranslation = key => storyDictionary.get(key) || phrases[key] || cache.get(key) || storyAliases.get(aliasKey(key));
+  // V42: allow one adjacent-character typo in a long word, never a whole-word substitution.
+  const typoIndex = new Map();
+  const typoSignatures = key => {
+    const words = key.split(" ");
+    if (words.length < 6 || key.length < 32) return [];
+    const out = [];
+    for (let i=0;i<words.length;i++) {
+      const w=words[i];
+      if (!/^[a-z]{6,}$/.test(w)) continue;
+      for(let j=0;j<w.length-1;j++) {
+        if(w[j]===w[j+1]) continue;
+        const copy=words.slice();
+        copy[i]=w.slice(0,j)+w[j+1]+w[j]+w.slice(j+2);
+        out.push(copy.join(" "));
+      }
+    }
+    return out;
+  };
+  dictionaryReady.then(() => {
+    for(const [key,value] of storyDictionary) {
+      for(const signature of typoSignatures(key)) {
+        if(!typoIndex.has(signature)) typoIndex.set(signature,value);
+        else if(typoIndex.get(signature)!==value) typoIndex.set(signature,null);
+      }
+    }
+  });
+  const localTranslation = key => storyDictionary.get(key) || phrases[key] || cache.get(key) || storyAliases.get(aliasKey(key)) || typoIndex.get(key);
+
 
   function setStatus(text,on=false) {
     $("status").textContent = text;
