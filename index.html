@@ -184,6 +184,11 @@
   dbStatus.style.cssText = "font-size:.85rem;opacity:.85;margin-top:.5rem";
   dbStatus.textContent = "Databáze V40: načítám…";
   $("hint").insertAdjacentElement("afterend", dbStatus);
+  const staticHosting = location.hostname.endsWith(".github.io");
+  if(staticHosting){
+    const notice=document.createElement("div");notice.textContent="GitHub Pages: místní překlad a záložní hlas fungují bez serveru; DeepL, AI Whisper a ElevenLabs vyžadují nasazení Cloudflare Pages.";notice.className="small";dbStatus.insertAdjacentElement("afterend",notice);
+    $("aiListen").disabled=true;
+  }
   const dictionaryReady = fetch(new URL("dialogues-v40.json", document.baseURI))
     .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
     .then(data => {
@@ -341,6 +346,7 @@
 
       const failures = [];
       for (const provider of providers) {
+        if (staticHosting && provider.name === "DeepL") continue;
         if (providerIsCoolingDown(provider.name)) {
           failures.push(provider.name + " je dočasně pozastaven kvůli limitu požadavků");
           continue;
@@ -466,7 +472,7 @@
   // Manual speaker profiles for the phone fallback; no speaker identity inference.
   const dubProfiles = { neutral:1, jason:0.85, lucia:1.15 };
   const profileLabel = document.createElement("label");
-  profileLabel.textContent = "Profil záložního hlasu (ruční výběr): ";
+  profileLabel.textContent = "Profil hlasu postavy (ruční výběr): ";
   const profileSelect = document.createElement("select");
   for (const [value,label] of [["neutral","Neutrální"],["jason","Jason – hlubší"],["lucia","Lucia – vyšší"]]) {
     const option=document.createElement("option");option.value=value;option.textContent=label;profileSelect.appendChild(option);
@@ -493,6 +499,7 @@
       const item=dubQueue.shift(),text=item.text,epoch=dubEpoch;let url,requestTimer;
       if(dubExpired(item))continue;
       try{
+        if(staticHosting)throw Error("AI dabing vyžaduje Cloudflare Pages");
         dubAbort=new AbortController();
         const controller=dubAbort;
         requestTimer=setTimeout(()=>controller.abort(),Math.max(1,DUB_MAX_AGE_MS-(performance.now()-item.queuedAt)));
