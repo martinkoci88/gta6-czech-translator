@@ -530,13 +530,25 @@
   }
 
   function runQueue() {
+    // Local results do not consume network worker slots.
+    while (queue.length) {
+      const index = queue.findIndex(item => item.local || localTranslation(normalize(item.text)));
+      if (index < 0) break;
+      const item = queue.splice(index, 1)[0];
+      const result = item.local || localTranslation(normalize(item.text));
+      if (item.generation === clearGeneration) {
+        completed.set(item.displayId, {
+          generation: item.generation, text: item.text,
+          translation: result, local: true
+        });
+      }
+    }
+    showCompletedInOrder();
     while (activeWorkers < MAX_WORKERS && queue.length) {
       const item = queue.shift();
       activeWorkers++;
 
-      const translation = item.local
-        ? Promise.resolve(item.local)
-        : requestTranslation(item.text);
+      const translation = requestTranslation(item.text);
 
       translation
         .then(result => {
